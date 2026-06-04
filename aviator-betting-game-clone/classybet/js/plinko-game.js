@@ -108,6 +108,14 @@ class PlinkoGame extends CasinoGame {
         }
 
         this.isDropping = true;
+        
+        // Deduct bet on backend
+        const betPlaced = await this.placeBetOnGame(betAmount, 'Bet on Plinko');
+        if (!betPlaced) {
+            this.isDropping = false;
+            return;
+        }
+
         document.getElementById('dropBtn').disabled = true;
         document.getElementById('dropBtn').innerHTML = '<i class="fas fa-spinner fa-spin"></i> Dropping...';
 
@@ -122,6 +130,11 @@ class PlinkoGame extends CasinoGame {
         // Calculate result
         const multiplier = this.multipliers[this.riskLevel][landingSlot];
         const winAmount = betAmount * multiplier;
+
+        // Credit winnings on backend
+        if (winAmount > 0) {
+            await this.winBetOnGame(winAmount, 'Win on Plinko');
+        }
 
         // Highlight landing slot
         this.highlightSlot(landingSlot);

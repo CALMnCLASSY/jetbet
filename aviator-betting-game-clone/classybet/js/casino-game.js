@@ -29,6 +29,12 @@ class CasinoGame {
         this.fetchBalance();
         this.setupEventListeners();
         this.checkFirstTimeUser();
+        
+        if (document.readyState === 'loading') {
+            window.addEventListener('DOMContentLoaded', () => this.replaceKESInDOM());
+        } else {
+            this.replaceKESInDOM();
+        }
     }
 
     checkFirstTimeUser() {
@@ -85,8 +91,184 @@ class CasinoGame {
     updateBalanceUI(amount) {
         const balanceEl = document.getElementById('headerBalance');
         if (balanceEl) {
-            balanceEl.textContent = `KES ${parseFloat(amount).toFixed(2)}`;
+            balanceEl.textContent = `${this.getCurrencySymbol()} ${parseFloat(amount).toFixed(2)}`;
         }
+        try {
+            const userData = JSON.parse(localStorage.getItem('userData'));
+            if (userData) {
+                userData.balance = parseFloat(amount);
+                localStorage.setItem('userData', JSON.stringify(userData));
+            }
+        } catch (e) {
+            console.error('Error updating balance in localStorage:', e);
+        }
+    }
+
+    getCurrencySymbol() {
+        if (typeof window.getCurrencySymbol === 'function') {
+            const currency = this.getUserCurrency();
+            return window.getCurrencySymbol(currency);
+        }
+        return 'KES';
+    }
+
+    getUserCurrency() {
+        try {
+            const userData = localStorage.getItem('userData');
+            if (userData) {
+                const user = JSON.parse(userData);
+                return user.currency || 'KES';
+            }
+        } catch (e) {}
+        return 'KES';
+    }
+
+    async placeBetOnGame(amount, description = 'Game Bet') {
+        const betAmount = parseFloat(amount);
+        if (isNaN(betAmount) || betAmount <= 0) {
+            alert('Invalid bet amount');
+            return false;
+        }
+
+        try {
+            const userData = JSON.parse(localStorage.getItem('userData') || '{}');
+            const currentBalance = userData.balance !== undefined ? parseFloat(userData.balance) : 0;
+
+            if (currentBalance < betAmount) {
+                alert('Insufficient balance');
+                return false;
+            }
+
+            const newBalance = currentBalance - betAmount;
+            this.updateBalanceUI(newBalance);
+
+            // Update user balance on backend
+            const balanceResponse = await fetch(`${this.apiBase}/api/user/balance/update`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${this.token}`
+                },
+                body: JSON.stringify({
+                    balance: newBalance,
+                    reason: `${description} (${this.gameName})`
+                })
+            });
+
+            if (!balanceResponse.ok) {
+                this.updateBalanceUI(currentBalance);
+                const errData = await balanceResponse.json();
+                throw new Error(errData.error || 'Failed to deduct balance on server');
+            }
+
+            // Record transaction on backend (negative amount for bet)
+            await fetch(`${this.apiBase}/api/game/record-transaction`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${this.token}`
+                },
+                body: JSON.stringify({
+                    type: 'bet',
+                    amount: -betAmount,
+                    description: description,
+                    game: this.gameId
+                })
+            }).catch(err => console.error('Error logging bet transaction:', err));
+
+            return true;
+        } catch (error) {
+            console.error('placeBetOnGame error:', error);
+            alert(error.message || 'Bet placement failed');
+            return false;
+        }
+    }
+
+    async winBetOnGame(winAmount, description = 'Game Win') {
+        const amount = parseFloat(winAmount);
+        if (isNaN(amount) || amount <= 0) {
+            console.warn('Invalid win amount');
+            return false;
+        }
+
+        try {
+            const userData = JSON.parse(localStorage.getItem('userData') || '{}');
+            const currentBalance = userData.balance !== undefined ? parseFloat(userData.balance) : 0;
+            const newBalance = currentBalance + amount;
+
+            this.updateBalanceUI(newBalance);
+
+            // Update user balance on backend
+            const balanceResponse = await fetch(`${this.apiBase}/api/user/balance/update`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${this.token}`
+                },
+                body: JSON.stringify({
+                    balance: newBalance,
+                    reason: `${description} (${this.gameName})`
+                })
+            });
+
+            if (!balanceResponse.ok) {
+                this.updateBalanceUI(currentBalance);
+                const errData = await balanceResponse.json();
+                throw new Error(errData.error || 'Failed to credit balance on server');
+            }
+
+            // Record transaction on backend (positive amount for win)
+            await fetch(`${this.apiBase}/api/game/record-transaction`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${this.token}`
+                },
+                body: JSON.stringify({
+                    type: 'win',
+                    amount: amount,
+                    description: description,
+                    game: this.gameId
+                })
+            }).catch(err => console.error('Error logging win transaction:', err));
+
+            return true;
+        } catch (error) {
+            console.error('winBetOnGame error:', error);
+            alert(error.message || 'Failed to credit win on server');
+            return false;
+        }
+    }
+
+    replaceKESInDOM() {
+        const activeSymbol = this.getCurrencySymbol();
+        const walker = document.createTreeWalker(
+            document.body,
+            NodeFilter.SHOW_TEXT,
+            null,
+            false
+        );
+
+        let node;
+        while (node = walker.nextNode()) {
+            const originalText = node.nodeValue;
+            const newText = originalText
+                .replace(/\bKES\b/g, activeSymbol)
+                .replace(/\bKSh\b/g, activeSymbol);
+            
+            if (originalText !== newText) {
+                node.nodeValue = newText;
+            }
+        }
+
+        const elements = document.querySelectorAll('input, button, [placeholder]');
+        elements.forEach(el => {
+            if (el.placeholder) {
+                el.placeholder = el.placeholder
+                    .replace(/\bKES\b/g, activeSymbol)
+                    .replace(/\bKSh\b/g, activeSymbol);
+            }
+        });
     }
 
     updateAuthUI() {

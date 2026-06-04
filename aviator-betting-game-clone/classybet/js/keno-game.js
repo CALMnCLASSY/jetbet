@@ -162,6 +162,12 @@ class KenoGame extends CasinoGame {
             return;
         }
 
+        // Deduct bet on backend first
+        const betPlaced = await this.placeBetOnGame(betAmount, 'Bet on Keno');
+        if (!betPlaced) {
+            return;
+        }
+
         this.gameActive = true;
         this.drawnNumbers = [];
         
@@ -244,6 +250,11 @@ class KenoGame extends CasinoGame {
         const selectedCount = this.selectedNumbers.size;
         const multiplier = this.payoutTable[selectedCount]?.[hits] || 0;
         const winAmount = betAmount * multiplier;
+
+        // Credit winnings on backend
+        if (winAmount > 0) {
+            await this.winBetOnGame(winAmount, 'Win on Keno');
+        }
 
         // Show result
         if (winAmount > 0) {

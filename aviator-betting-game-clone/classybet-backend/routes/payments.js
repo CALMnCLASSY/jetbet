@@ -8,7 +8,8 @@ const { sendTelegramNotification } = require('../utils/telegram');
 const { sendSlackMessage } = require('../utils/slack');
 const { recordAffiliateDeposit } = require('../utils/affiliate');
 const paystackService = require('../utils/paystackService');
-const { validateDepositAmount, formatCurrency, convertToPaystackCurrency } = require('../utils/currencyConfig');
+const { validateDepositAmount, formatCurrency, convertToPaystackCurrency, convertToFlutterwaveCurrency } = require('../utils/currencyConfig');
+const ExchangeRateService = require('../services/ExchangeRateService');
 
 const router = express.Router();
 
@@ -935,7 +936,347 @@ router.post('/paystack-webhook', async (req, res) => {
   }
 });
 
-module.exports = router;
+// ==================== FLUTTERWAVE ENDPOINTS ====================
 
+const FLW_BASE_URL = 'https://api.flutterwave.com/v3';
+const FLW_SECRET_KEY = process.env.FLW_SECRET_KEY;
+
+/**
+ * Helper: initialize a Flutterwave inline payment.
+ * Returns { success, data } or { success: false, error }.
+ */
+async function initFlutterwavePayment({ tx_ref, amount, currency, email, meta }) {
+  try {
+    const payload = {
+      tx_ref,
+      amount,
+      currency,
+      redirect_url: process.env.FRONTEND_URL || 'https://jetbetaviator.com',
+      customer: { email },
+      customizations: {
+        title: 'JetBet Deposit',
+        logo: `${process.env.FRONTEND_URL || 'https://jetbetaviator.com'}/favicon.ico`
+      },
+      meta
+    };
+
+    const response = await axios.post(`${FLW_BASE_URL}/payments`, payload, {
+      headers: {
+        Authorization: `Bearer ${FLW_SECRET_KEY}`,
+        'Content-Type': 'application/json'
+      },
+      timeout: 15000
+    });
+
+    if (response.data && response.data.status === 'success') {
+      return { success: true, data: response.data.data };
+    }
+    return { success: false, error: response.data?.message || 'FLW init failed' };
+  } catch (err) {
+    const msg = err.response?.data?.message || err.message || 'Flutterwave request error';
+    return { success: false, error: msg };
+  }
+}
+
+// Initialize Flutterwave deposit (with Paystack fallback)
+router.post('/flw-deposit-initialize',
+  authenticateToken,
+  [
+    body('amount').isNumeric().withMessage('Amount must be a number')
+  ],
+  async (req, res) => {
+    try {
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        return res.status(400).json({ error: 'Validation failed', details: errors.array() });
+      }
+
+      const { amount } = req.body;
+      const user = await User.findById(req.userId);
+      if (!user) return res.status(404).json({ error: 'User not found' });
+
+      // Validate amount for user currency
+      const validation = validateDepositAmount(amount, user.currency);
+      if (!validation.valid) {
+        return res.status(400).json({ error: validation.error });
+      }
+
+      // Convert to FLW-supported currency if needed
+      const conversion = await convertToFlutterwaveCurrency(amount, user.currency);
+      if (conversion.error) {
+        return res.status(400).json({ error: conversion.error });
+      }
+
+      const flwAmount = conversion.flwAmount;
+      const flwCurrency = conversion.flwCurrency;
+      const currencyNote = conversion.converted
+        ? ` (converted to ${formatCurrency(flwAmount, 'USD')})`
+        : '';
+
+      // Create pending transaction stored in HOME currency
+      const transaction = new Transaction({
+        user: user._id,
+        type: 'deposit',
+        amount: parseFloat(amount),          // HOME currency amount
+        currency: user.currency,
+        balanceBefore: user.balance,
+        balanceAfter: user.balance,
+        status: 'pending',
+        description: `Flutterwave deposit of ${formatCurrency(amount, user.currency)}`,
+        paymentProvider: 'flutterwave',
+        metadata: {
+          flwCurrency,
+          flwAmount,
+          converted: conversion.converted,
+          exchangeRate: conversion.exchangeRate || null,
+          originalCurrency: user.currency,
+          originalAmount: parseFloat(amount)
+        }
+      });
+      await transaction.save();
+
+      // Notify Slack early (so you always see the pending deposit)
+      await sendSlackMessage(
+        process.env.SLACK_WEBHOOK_DEPOSIT_REQUEST,
+        `:airplane: *Flutterwave Deposit Initiated (Pending)*\n` +
+        `User: ${user.username}\n` +
+        `Requested: ${formatCurrency(parseFloat(amount), user.currency)}${currencyNote}\n` +
+        `FLW Charge: ${formatCurrency(flwAmount, flwCurrency)}\n` +
+        `Reference: ${transaction.reference}\n` +
+        `Time: ${new Date().toLocaleString('en-KE', { timeZone: 'Africa/Nairobi' })}`
+      );
+
+      // Attempt FLW initialization
+      const flwResult = await initFlutterwavePayment({
+        tx_ref: transaction.reference,
+        amount: flwAmount,
+        currency: flwCurrency,
+        email: user.email || `${user.username}@jetbet.com`,
+        meta: {
+          userId: user._id.toString(),
+          username: user.username,
+          originalCurrency: user.currency,
+          originalAmount: parseFloat(amount)
+        }
+      });
+
+      if (flwResult.success) {
+        // Update transaction with FLW link
+        transaction.metadata = { ...transaction.metadata, flwLink: flwResult.data.link };
+        await transaction.save();
+
+        return res.json({
+          success: true,
+          provider: 'flutterwave',
+          data: {
+            payment_link: flwResult.data.link,
+            tx_ref: transaction.reference,
+            amount: flwAmount,
+            currency: flwCurrency,
+            originalAmount: parseFloat(amount),
+            originalCurrency: user.currency,
+            converted: conversion.converted
+          }
+        });
+      }
+
+      // ── Flutterwave failed → fall back to Paystack ──
+      console.warn(`[FLW] Init failed (${flwResult.error}), falling back to Paystack for ${user.username}`);
+
+      transaction.metadata = {
+        ...transaction.metadata,
+        flwInitError: flwResult.error,
+        fallbackProvider: 'paystack'
+      };
+      transaction.paymentProvider = 'paystack'; // re-route to Paystack verify
+      await transaction.save();
+
+      // Paystack conversion
+      const psConversion = convertToPaystackCurrency(amount, user.currency);
+      if (psConversion.error) {
+        transaction.status = 'failed';
+        await transaction.save();
+        return res.status(400).json({ error: psConversion.error });
+      }
+
+      const psResult = await paystackService.initializeTransaction({
+        email: user.email || `${user.username}@jetbet.com`,
+        amount: psConversion.paystackAmount,
+        currency: psConversion.paystackCurrency,
+        reference: transaction.reference,
+        channels: ['card', 'bank', 'ussd', 'qr', 'mobile_money', 'bank_transfer', 'eft'],
+        metadata: {
+          userId: user._id.toString(),
+          username: user.username,
+          originalCurrency: user.currency,
+          originalAmount: parseFloat(amount)
+        }
+      });
+
+      if (!psResult.success) {
+        transaction.status = 'failed';
+        await transaction.save();
+        return res.status(400).json({ error: 'Both Flutterwave and Paystack failed to initialize payment.' });
+      }
+
+      transaction.paystackReference = psResult.data.reference;
+      transaction.paystackAccessCode = psResult.data.access_code;
+      await transaction.save();
+
+      return res.json({
+        success: true,
+        provider: 'paystack',
+        fallback: true,
+        data: {
+          authorization_url: psResult.data.authorization_url,
+          access_code: psResult.data.access_code,
+          reference: psResult.data.reference,
+          amount: psConversion.paystackAmount,
+          currency: psConversion.paystackCurrency,
+          originalAmount: parseFloat(amount),
+          originalCurrency: user.currency
+        }
+      });
+
+    } catch (error) {
+      console.error('FLW deposit initialize error:', error);
+      res.status(500).json({ error: 'Failed to initialize deposit' });
+    }
+  }
+);
+
+// Verify Flutterwave deposit
+router.post('/flw-deposit-verify',
+  authenticateToken,
+  [
+    body('transaction_id').isNumeric().withMessage('FLW transaction_id is required'),
+    body('tx_ref').notEmpty().withMessage('tx_ref (reference) is required')
+  ],
+  async (req, res) => {
+    try {
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        return res.status(400).json({ error: 'Validation failed', details: errors.array() });
+      }
+
+      const { transaction_id, tx_ref } = req.body;
+      const user = await User.findById(req.userId);
+      if (!user) return res.status(404).json({ error: 'User not found' });
+
+      // Find the pending transaction by our tx_ref
+      const transaction = await Transaction.findOne({ reference: tx_ref, user: user._id });
+      if (!transaction) {
+        return res.status(404).json({ error: 'Transaction not found' });
+      }
+
+      if (transaction.status === 'completed') {
+        return res.json({ success: true, message: 'Already completed', newBalance: user.balance });
+      }
+
+      // Verify with Flutterwave
+      const verifyRes = await axios.get(
+        `${FLW_BASE_URL}/transactions/${transaction_id}/verify`,
+        {
+          headers: { Authorization: `Bearer ${FLW_SECRET_KEY}` },
+          timeout: 15000
+        }
+      );
+
+      const flwData = verifyRes.data;
+      if (!flwData || flwData.status !== 'success') {
+        transaction.status = 'failed';
+        await transaction.save();
+        return res.status(400).json({ error: 'Flutterwave verification returned non-success status' });
+      }
+
+      const paymentStatus = flwData.data?.status;
+      if (paymentStatus !== 'successful') {
+        transaction.status = 'failed';
+        await transaction.save();
+        return res.status(400).json({ error: `Payment not successful. FLW status: ${paymentStatus}` });
+      }
+
+      // Credit the HOME currency amount (NOT the converted FLW amount)
+      user.balance += transaction.amount;
+      await user.save();
+
+      try {
+        await recordAffiliateDeposit(user, transaction.amount);
+      } catch (err) {
+        console.error('Affiliate deposit tracking failed:', err.message);
+      }
+
+      transaction.status = 'completed';
+      transaction.balanceAfter = user.balance;
+      transaction.processedAt = new Date();
+      transaction.metadata = {
+        ...transaction.metadata,
+        flwTransactionId: transaction_id,
+        flwVerifyData: {
+          status: paymentStatus,
+          channel: flwData.data?.payment_type,
+          flwRef: flwData.data?.flw_ref
+        }
+      };
+      await transaction.save();
+
+      await sendTelegramNotification(
+        `✅ Flutterwave Deposit Confirmed!\n\n` +
+        `User: ${user.username}\n` +
+        `Amount: ${formatCurrency(transaction.amount, user.currency)}\n` +
+        `New Balance: ${formatCurrency(user.balance, user.currency)}\n` +
+        `FLW Ref: ${flwData.data?.flw_ref}\n` +
+        `Time: ${new Date().toLocaleString()}`
+      );
+
+      await sendSlackMessage(
+        process.env.SLACK_WEBHOOK_DEPOSIT_REQUEST,
+        `:white_check_mark: *Flutterwave Deposit Confirmed*\n` +
+        `User: ${user.username}\n` +
+        `Amount: ${formatCurrency(transaction.amount, user.currency)}\n` +
+        `New Balance: ${formatCurrency(user.balance, user.currency)}\n` +
+        `Channel: ${flwData.data?.payment_type}\n` +
+        `Time: ${new Date().toLocaleString('en-KE', { timeZone: 'Africa/Nairobi' })}`
+      );
+
+      res.json({
+        success: true,
+        message: 'Flutterwave deposit verified and balance credited',
+        newBalance: user.balance
+      });
+
+    } catch (error) {
+      console.error('FLW deposit verify error:', error);
+      res.status(500).json({ error: 'Failed to verify Flutterwave deposit' });
+    }
+  }
+);
+
+// Poll Flutterwave deposit status
+router.get('/flw-deposit-status',
+  authenticateToken,
+  async (req, res) => {
+    try {
+      const { ref } = req.query;
+      if (!ref) return res.status(400).json({ error: 'ref query parameter is required' });
+
+      const user = await User.findById(req.userId);
+      if (!user) return res.status(404).json({ error: 'User not found' });
+
+      const transaction = await Transaction.findOne({ reference: ref, user: user._id });
+      if (!transaction) return res.status(404).json({ error: 'Transaction not found' });
+
+      res.json({
+        status: transaction.status,
+        amount: transaction.amount,
+        currency: transaction.currency,
+        newBalance: transaction.status === 'completed' ? user.balance : null
+      });
+    } catch (error) {
+      console.error('FLW deposit status error:', error);
+      res.status(500).json({ error: 'Failed to get deposit status' });
+    }
+  }
+);
 
 module.exports = router;

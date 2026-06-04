@@ -122,6 +122,21 @@ class RouletteGame extends CasinoGame {
         document.getElementById('spinBtn').disabled = true;
         document.getElementById('spinBtn').innerHTML = '<i class="fas fa-spinner fa-spin"></i> Spinning...';
 
+        // Calculate total bet amount
+        let betAmount = 0;
+        this.bets.forEach(amount => {
+            betAmount += amount;
+        });
+
+        // Deduct bet on backend
+        const betPlaced = await this.placeBetOnGame(betAmount, 'Bet on Roulette');
+        if (!betPlaced) {
+            this.isSpinning = false;
+            document.getElementById('spinBtn').disabled = false;
+            document.getElementById('spinBtn').innerHTML = '<i class="fas fa-play-circle"></i> Spin';
+            return;
+        }
+
         // Animate wheel
         const wheel = document.getElementById('rouletteWheel');
         const wheelInner = document.getElementById('wheelInner');
@@ -146,6 +161,11 @@ class RouletteGame extends CasinoGame {
 
         // Calculate winnings
         const result = this.calculateWinnings(winningNumber);
+
+        // Credit winnings on backend
+        if (result.isWin) {
+            await this.winBetOnGame(result.totalWin, 'Win on Roulette');
+        }
         
         // Highlight winning spots
         this.highlightWinningSpots(winningNumber);

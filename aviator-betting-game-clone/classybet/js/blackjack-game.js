@@ -117,6 +117,11 @@ class BlackjackGame extends CasinoGame {
             return;
         }
 
+        const betPlaced = await this.placeBetOnGame(betAmount, 'Bet on Blackjack');
+        if (!betPlaced) {
+            return;
+        }
+
         this.currentBet = betAmount;
         this.gameActive = true;
 
@@ -280,6 +285,12 @@ class BlackjackGame extends CasinoGame {
     }
 
     async double() {
+        const extraBet = this.currentBet;
+        const betPlaced = await this.placeBetOnGame(extraBet, 'Double Bet on Blackjack');
+        if (!betPlaced) {
+            return;
+        }
+
         // Double the bet
         this.currentBet *= 2;
         document.getElementById('currentBet').textContent = `KES ${this.currentBet}`;
@@ -294,7 +305,7 @@ class BlackjackGame extends CasinoGame {
         
         if (playerValue > 21) {
             await this.revealDealerCard();
-            this.endRound('loss', 'Bust! Dealer Wins');
+            await this.endRound('loss', 'Bust! Dealer Wins');
         } else {
             await this.stand();
         }
@@ -332,7 +343,7 @@ class BlackjackGame extends CasinoGame {
         }
     }
 
-    endRound(result, message) {
+    async endRound(result, message) {
         this.gameActive = false;
         this.setButtonsState('finished');
 
@@ -354,6 +365,10 @@ class BlackjackGame extends CasinoGame {
             winAmount = this.currentBet;
             this.stats.pushes++;
             overlayClass = 'push';
+        }
+
+        if (winAmount > 0) {
+            await this.winBetOnGame(winAmount, 'Win on Blackjack');
         }
 
         this.updateStats();

@@ -1607,6 +1607,7 @@ Support: support@jetbetaviator.com`;
     <script src="./gameSocket.js?v=2.5"></script>
     <script src="./script.js?v=2.5"></script>
     <script src="./js/paystack-payment.js"></script>
+    <script src="./js/flutterwave-payment.js"></script>
     <script>
         // Update deposit modal with user's currency
         function updateDepositModalCurrency() {
@@ -1676,8 +1677,17 @@ Support: support@jetbetaviator.com`;
                 return;
             }
 
-            // Call Paystack integration
-            if (typeof initiatePaystackDeposit === 'function') {
+            // Call Flutterwave integration (primary) with Paystack fallback
+            if (typeof initiateFlutterwaveDeposit === 'function') {
+                initiateFlutterwaveDeposit(parseFloat(amount))
+                    .catch(error => {
+                        console.error('Deposit error:', error);
+                        if (errorEl) {
+                            errorEl.textContent = error.message || 'Deposit failed. Please try again.';
+                            errorEl.style.display = 'block';
+                        }
+                    });
+            } else if (typeof initiatePaystackDeposit === 'function') {
                 initiatePaystackDeposit(parseFloat(amount))
                     .catch(error => {
                         console.error('Deposit error:', error);

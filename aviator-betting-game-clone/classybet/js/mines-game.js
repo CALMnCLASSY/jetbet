@@ -68,11 +68,16 @@ class MinesGame extends CasinoGame {
         this.updateNextMultiplier();
     }
 
-    startGame() {
+    async startGame() {
         const betAmount = parseFloat(document.getElementById('betAmount').value);
         
         if (betAmount < 10) {
             alert('Minimum bet is KES 10');
+            return;
+        }
+
+        const betPlaced = await this.placeBetOnGame(betAmount, 'Bet on Mines');
+        if (!betPlaced) {
             return;
         }
 
@@ -223,6 +228,7 @@ class MinesGame extends CasinoGame {
         await this.delay(500);
         
         const winAmount = this.currentBet * this.currentMultiplier;
+        await this.winBetOnGame(winAmount, 'Win on Mines');
         this.showWinResult(winAmount);
 
         setTimeout(() => {
@@ -230,7 +236,7 @@ class MinesGame extends CasinoGame {
         }, 3000);
     }
 
-    cashOut() {
+    async cashOut() {
         if (!this.gameActive || this.revealedTiles.length === 0) {
             return;
         }
@@ -241,6 +247,7 @@ class MinesGame extends CasinoGame {
         this.revealAllMines();
 
         const winAmount = this.currentBet * this.currentMultiplier;
+        await this.winBetOnGame(winAmount, 'Win on Mines');
         this.showWinResult(winAmount);
 
         setTimeout(() => {

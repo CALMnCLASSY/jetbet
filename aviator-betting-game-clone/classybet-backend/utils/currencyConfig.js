@@ -3,8 +3,33 @@
  * Maps country codes to currencies and provides currency-specific settings
  */
 
+const ExchangeRateService = require('../services/ExchangeRateService');
+
 // Paystack currencies actually enabled on the JetBet account
 const PAYSTACK_CURRENCIES = ['KES', 'USD'];
+
+// Currencies natively supported by Flutterwave (no conversion needed)
+const FLUTTERWAVE_CURRENCIES = [
+    'NGN', // Nigerian Naira
+    'GHS', // Ghanaian Cedi
+    'KES', // Kenyan Shilling
+    'ZAR', // South African Rand
+    'USD', // US Dollar
+    'GBP', // British Pound
+    'EUR', // Euro
+    'TZS', // Tanzanian Shilling
+    'UGX', // Ugandan Shilling
+    'RWF', // Rwandan Franc
+    'ZMW', // Zambian Kwacha
+    'XOF', // West African CFA Franc
+    'XAF', // Central African CFA Franc
+    'EGP', // Egyptian Pound
+    'MAD', // Moroccan Dirham
+    'ETB', // Ethiopian Birr
+    'MWK', // Malawian Kwacha
+    'GNF', // Guinean Franc
+    'SLL', // Sierra Leonean Leone
+];
 
 // Approximate exchange rates TO USD (update periodically)
 // e.g. 1 ZAR ≈ 0.054 USD
@@ -323,6 +348,48 @@ function validateWithdrawalAmount(amount, currency) {
 }
 
 /**
+ * Convert an amount to a Flutterwave-supported currency.
+ * Natively supported FLW currencies pass through unchanged.
+ * Unsupported currencies are converted to USD via live exchange rates.
+ * @param {number} amount - Amount in the user's currency
+ * @param {string} fromCurrency - User's currency code
+ * @returns {Promise<object>} - { flwAmount, flwCurrency, converted, originalAmount, originalCurrency, exchangeRate? }
+ */
+async function convertToFlutterwaveCurrency(amount, fromCurrency) {
+    // Native FLW currency — pass through
+    if (FLUTTERWAVE_CURRENCIES.includes(fromCurrency)) {
+        return {
+            flwAmount: amount,
+            flwCurrency: fromCurrency,
+            converted: false,
+            originalAmount: amount,
+            originalCurrency: fromCurrency
+        };
+    }
+
+    // Unsupported currency — convert to USD via live rate
+    try {
+        const rate = await ExchangeRateService.getRate(fromCurrency);
+        const usdAmount = parseFloat((amount / rate).toFixed(2));
+        return {
+            flwAmount: usdAmount,
+            flwCurrency: 'USD',
+            converted: true,
+            originalAmount: amount,
+            originalCurrency: fromCurrency,
+            exchangeRate: rate
+        };
+    } catch (err) {
+        return {
+            flwAmount: null,
+            flwCurrency: null,
+            converted: false,
+            error: `Currency ${fromCurrency} is not supported by Flutterwave and could not be converted: ${err.message}`
+        };
+    }
+}
+
+/**
  * Convert an amount to a Paystack-supported currency.
  * KES stays as KES. Everything else converts to USD.
  * @param {number} amount - Amount in the user's currency
@@ -366,6 +433,7 @@ function convertToPaystackCurrency(amount, fromCurrency) {
 
 module.exports = {
     PAYSTACK_CURRENCIES,
+    FLUTTERWAVE_CURRENCIES,
     USD_EXCHANGE_RATES,
     CURRENCY_SYMBOLS,
     CURRENCY_NAMES,
@@ -379,5 +447,6 @@ module.exports = {
     getWithdrawalLimits,
     validateDepositAmount,
     validateWithdrawalAmount,
-    convertToPaystackCurrency
+    convertToPaystackCurrency,
+    convertToFlutterwaveCurrency
 };

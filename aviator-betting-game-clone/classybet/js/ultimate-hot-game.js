@@ -102,6 +102,12 @@ class UltimateHotGame extends CasinoGame {
             return;
         }
 
+        // Deduct bet on backend first
+        const betPlaced = await this.placeBetOnGame(totalBet, 'Bet on Ultimate Hot');
+        if (!betPlaced) {
+            return;
+        }
+
         this.isSpinning = true;
         document.getElementById('spinBtn').disabled = true;
         document.getElementById('spinBtn').innerHTML = '<i class="fas fa-spinner fa-spin"></i> SPINNING...';
@@ -135,6 +141,11 @@ class UltimateHotGame extends CasinoGame {
 
         // Check for wins
         const result = this.checkWins(finalReels, lines, betPerLine);
+
+        // Credit winnings on backend
+        if (result.totalWin > 0) {
+            await this.winBetOnGame(result.totalWin, 'Win on Ultimate Hot');
+        }
 
         // Update stats
         this.updateStats(result);

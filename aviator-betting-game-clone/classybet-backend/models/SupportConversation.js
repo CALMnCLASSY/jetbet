@@ -13,7 +13,8 @@ const supportConversationSchema = new mongoose.Schema({
     messages: [messageSchema],
     status: { type: String, enum: ['open', 'closed'], default: 'open' },
     slackThreadTs: { type: String, default: null },
-    slackChannel: { type: String, default: null }
+    slackChannel: { type: String, default: null },
+    agentHandover: { type: Boolean, default: false }  // true = human agent replied, mute AI bot
 }, { timestamps: true });
 
 supportConversationSchema.index({ userId: 1, status: 1 });

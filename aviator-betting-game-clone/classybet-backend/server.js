@@ -1,4 +1,4 @@
-﻿require('dotenv').config();
+require('dotenv').config();
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
@@ -14,6 +14,7 @@ const affiliateRoutes = require('./routes/affiliate');
 
 const roundRoutes = require('./routes/rounds');
 const casinoRoutes = require('./routes/casino');
+const userRoutes = require('./routes/users');
 
 // Import models
 const User = require('./models/User');
@@ -21,6 +22,7 @@ const SupportConversation = require('./models/SupportConversation');
 const { startRoundScheduler } = require('./utils/roundScheduler');
 const { sendSlackMessage, postSlackThread, verifySlackSignature } = require('./utils/slack');
 const jwt = require('jsonwebtoken');
+const ExchangeRateService = require('./services/ExchangeRateService');
 
 const app = express();
 
@@ -279,8 +281,10 @@ app.post('/api/support/slack-events', async (req, res) => {
           text: event.text,
           createdAt: new Date()
         });
+        // Mark as agent handover so the AI bot will not respond
+        conversation.agentHandover = true;
         await conversation.save();
-        console.log(`💬 Agent reply saved for conversation ${conversation._id}`);
+        console.log(`💬 Agent reply saved for conversation ${conversation._id} (agentHandover=true)`);
       }
     }
 
@@ -291,11 +295,29 @@ app.post('/api/support/slack-events', async (req, res) => {
   }
 });
 
+// PATCH /api/support/conversation/:id/mute — manually mark conversation as agent handover
+app.patch('/api/support/conversation/:id/mute', async (req, res) => {
+  try {
+    const conversation = await SupportConversation.findById(req.params.id);
+    if (!conversation) {
+      return res.status(404).json({ error: 'Conversation not found' });
+    }
+    conversation.agentHandover = true;
+    await conversation.save();
+    res.json({ success: true, agentHandover: true });
+  } catch (error) {
+    console.error('Mute conversation error:', error);
+    res.status(500).json({ error: 'Failed to mute conversation' });
+  }
+});
+
 // Connect to MongoDB
 const { connectToMongoDB } = require('./utils/database');
 connectToMongoDB()
   .then(() => {
     startRoundScheduler();
+    // Start live exchange rate refresh (for Flutterwave currency conversion)
+    ExchangeRateService.startDailyRefresh();
     // Initialize game state manager AFTER MongoDB is connected
     gameStateManager.initialize(io);
   })
@@ -313,6 +335,7 @@ app.use('/api/game', gameRoutes);
 app.use('/api/affiliates', affiliateRoutes);
 app.use('/api/rounds', roundRoutes);
 app.use('/api/casino', casinoRoutes);
+app.use('/api/user', userRoutes);
 
 // Serve static files for admin and profile pages
 app.use('/admin', express.static('public/admin'));

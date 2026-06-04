@@ -69,8 +69,13 @@ class BaccaratGame extends CasinoGame {
             return;
         }
 
-        // Disable controls during game
+        // Place bet with backend first
         this.setGameState(true);
+        const betPlaced = await this.placeBetOnGame(betAmount, `Bet on Baccarat (${this.selectedBet})`);
+        if (!betPlaced) {
+            this.setGameState(false);
+            return;
+        }
 
         // Clear previous cards
         document.getElementById('playerCards').innerHTML = '';
@@ -83,8 +88,34 @@ class BaccaratGame extends CasinoGame {
         // Simulate card dealing with animation delay
         await this.animateDeal();
 
-        // Place bet with backend
-        await this.placeBaccaratBet(betAmount);
+        // Process outcome
+        const { playerTotal, bankerTotal } = this.currentHands;
+        let winner;
+        if (playerTotal > bankerTotal) {
+            winner = 'player';
+        } else if (bankerTotal > playerTotal) {
+            winner = 'banker';
+        } else {
+            winner = 'tie';
+        }
+
+        const isWin = winner === this.selectedBet;
+        const payoutMultiplier = (this.selectedBet === 'tie') ? 9 : 2;
+        const displayMultiplier = (this.selectedBet === 'tie') ? 8 : 1;
+        const winAmount = isWin ? betAmount * payoutMultiplier : 0;
+
+        if (isWin) {
+            await this.winBetOnGame(winAmount, `Win on Baccarat (${this.selectedBet})`);
+        }
+
+        this.updateStats(winner);
+
+        this.handleBaccaratResult({
+            isWin,
+            winAmount: isWin ? (betAmount * displayMultiplier) : 0,
+            multiplier: isWin ? payoutMultiplier : 0,
+            result: winner
+        });
     }
 
     async animateDeal() {
@@ -200,81 +231,7 @@ class BaccaratGame extends CasinoGame {
         });
     }
 
-    async placeBaccaratBet(amount) {
-        try {
-            const response = await fetch(`${this.apiBase}/api/casino/play`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${this.token}`
-                },
-                body: JSON.stringify({
-                    gameId: 'baccarat',
-                    amount: parseFloat(amount),
-                    betType: this.selectedBet
-                })
-            });
-
-            const data = await response.json();
-
-            if (!response.ok) {
-                throw new Error(data.error || 'Bet failed');
-            }
-
-            // Update balance immediately with backend response
-            this.updateBalanceUI(data.balance);
-            this.handleBaccaratResult(data);
-
-            // Refresh balance after result animation to ensure sync
-            setTimeout(() => {
-                this.fetchBalance();
-            }, 3500);
-
-        } catch (error) {
-            console.error('Backend bet failed:', error);
-            alert('Error placing bet: ' + error.message);
-            this.setGameState(false);
-        }
-    }
-
-    simulateResult(amount) {
-        const { playerTotal, bankerTotal } = this.currentHands;
-
-        let winner;
-        if (playerTotal > bankerTotal) {
-            winner = 'player';
-        } else if (bankerTotal > playerTotal) {
-            winner = 'banker';
-        } else {
-            winner = 'tie';
-        }
-
-        // Determine if player won
-        const isWin = winner === this.selectedBet;
-        let multiplier = 0;
-        let winAmount = 0;
-
-        if (isWin) {
-            if (this.selectedBet === 'tie') {
-                multiplier = 8;
-            } else {
-                multiplier = 1;
-            }
-            winAmount = amount * multiplier;
-        }
-
-        // Update stats
-        this.updateStats(winner);
-
-        // Show result
-        this.handleBaccaratResult({
-            isWin,
-            winAmount,
-            multiplier,
-            result: winner,
-            balance: 0 // Will not update in demo
-        });
-    }
+    // Backend endpoints are handled via placeBetOnGame and winBetOnGame in base CasinoGame class
 
     handleBaccaratResult(data) {
         const { playerTotal, bankerTotal } = this.currentHands;

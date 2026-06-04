@@ -38,11 +38,16 @@ class JetXGame extends CasinoGame {
         setTimeout(() => this.startRound(), 2000);
     }
 
-    placeBet() {
+    async placeBet() {
         const amount = parseFloat(document.getElementById('betAmount').value);
         
         if (amount < 10) {
             alert('Minimum bet is KES 10');
+            return;
+        }
+
+        const betPlaced = await this.placeBetOnGame(amount, 'Bet on JetX');
+        if (!betPlaced) {
             return;
         }
 
@@ -123,13 +128,15 @@ class JetXGame extends CasinoGame {
         }
     }
 
-    cashOut() {
+    async cashOut() {
         if (!this.betPlaced || this.gameState !== 'flying') return;
 
         clearInterval(this.multiplierInterval);
 
         const winAmount = this.betAmount * this.currentMultiplier;
         
+        await this.winBetOnGame(winAmount, 'Win on JetX');
+
         // Show win message
         this.showWinMessage(winAmount, this.currentMultiplier);
 
@@ -249,15 +256,18 @@ class JetXGame extends CasinoGame {
         betItem.className = 'bet-item';
         if (cashed) betItem.classList.add('cashed');
 
+        const parsedBetAmount = parseFloat(betAmount) || 0;
+        const parsedWinAmount = parseFloat(winAmount) || 0;
+
         betItem.innerHTML = `
             <div class="player-info">
                 <div class="player-name">${playerName}</div>
-                <div class="bet-amount">KES ${betAmount.toFixed(2)}</div>
+                <div class="bet-amount">KES ${parsedBetAmount.toFixed(2)}</div>
             </div>
             <div class="bet-result">
                 ${cashed ? `
-                    <div class="multiplier">${multiplier}x</div>
-                    <div class="win-amount">+KES ${winAmount.toFixed(2)}</div>
+                    <div class="multiplier">${parseFloat(multiplier).toFixed(2)}x</div>
+                    <div class="win-amount">+KES ${parsedWinAmount.toFixed(2)}</div>
                 ` : `
                     <div style="color: #d32f2f;">Lost</div>
                 `}
