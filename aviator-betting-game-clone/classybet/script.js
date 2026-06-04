@@ -3596,56 +3596,64 @@ function isDemo() {
 // Authentication is now handled through the index page
 
 // Deposit form
-document.getElementById('deposit-form').addEventListener('submit', async (e) => {
-    e.preventDefault();
-
-    const amount = parseFloat(document.getElementById('deposit-amount').value);
-    let phoneNumber = document.getElementById('deposit-phone').value;
-    const instructionsSection = document.querySelector('#deposit-modal .deposit-instructions');
-
-    // Validate amount
-    if (isNaN(amount) || amount < 100 || amount > 150000) {
-        showError('deposit-error', 'Amount must be between KES 100 and KES 150,000');
-        return;
-    }
-
-    // Format and validate phone number
-    phoneNumber = phoneNumber.replace(/\D/g, ''); // Remove non-digits
-    if (phoneNumber.startsWith('0')) {
-        phoneNumber = '254' + phoneNumber.substring(1);
-    } else if (phoneNumber.startsWith('+')) {
-        phoneNumber = phoneNumber.substring(1);
-    }
-
-    // Validate phone number format
-    if (!/^254[0-9]{9}$/.test(phoneNumber)) {
-        showError('deposit-error', 'Invalid phone number format. Use format: 254XXXXXXXXX or 07XXXXXXXX');
-        return;
-    }
-
-    if (instructionsSection) {
-        instructionsSection.style.display = 'block';
-    }
-
-    const result = await jetbetAPI.depositSTK(amount, phoneNumber);
-
-    // Keep local API instance in sync with latest user data after deposit attempt
-    const latestUserData = localStorage.getItem('userData');
-    if (latestUserData) {
-        try {
-            jetbetAPI.user = JSON.parse(latestUserData);
-        } catch (error) {
-            console.error('Failed to parse user data after deposit attempt:', error);
+const depositForm = document.getElementById('deposit-form');
+if (depositForm) {
+    depositForm.addEventListener('submit', async (e) => {
+        const phoneInput = document.getElementById('deposit-phone');
+        if (!phoneInput) {
+            // If phone input doesn't exist, this form submission is handled by inline handlers
+            return;
         }
-    }
+        e.preventDefault();
 
-    if (result.success) {
-        showSuccess('deposit-success', `STK Push sent! Transaction ID: ${result.transactionId}`);
-        document.getElementById('deposit-form').reset();
-    } else {
-        showError('deposit-error', result.error);
-    }
-});
+        const amount = parseFloat(document.getElementById('deposit-amount').value);
+        let phoneNumber = phoneInput.value;
+        const instructionsSection = document.querySelector('#deposit-modal .deposit-instructions');
+
+        // Validate amount
+        if (isNaN(amount) || amount < 100 || amount > 150000) {
+            showError('deposit-error', 'Amount must be between KES 100 and KES 150,000');
+            return;
+        }
+
+        // Format and validate phone number
+        phoneNumber = phoneNumber.replace(/\D/g, ''); // Remove non-digits
+        if (phoneNumber.startsWith('0')) {
+            phoneNumber = '254' + phoneNumber.substring(1);
+        } else if (phoneNumber.startsWith('+')) {
+            phoneNumber = phoneNumber.substring(1);
+        }
+
+        // Validate phone number format
+        if (!/^254[0-9]{9}$/.test(phoneNumber)) {
+            showError('deposit-error', 'Invalid phone number format. Use format: 254XXXXXXXXX or 07XXXXXXXX');
+            return;
+        }
+
+        if (instructionsSection) {
+            instructionsSection.style.display = 'block';
+        }
+
+        const result = await jetbetAPI.depositSTK(amount, phoneNumber);
+
+        // Keep local API instance in sync with latest user data after deposit attempt
+        const latestUserData = localStorage.getItem('userData');
+        if (latestUserData) {
+            try {
+                jetbetAPI.user = JSON.parse(latestUserData);
+            } catch (error) {
+                console.error('Failed to parse user data after deposit attempt:', error);
+            }
+        }
+
+        if (result.success) {
+            showSuccess('deposit-success', `STK Push sent! Transaction ID: ${result.transactionId}`);
+            depositForm.reset();
+        } else {
+            showError('deposit-error', result.error);
+        }
+    });
+}
 
 // Navigation button events (with null checks since navigation was removed)
 const loginBtn = document.getElementById('login-btn');
