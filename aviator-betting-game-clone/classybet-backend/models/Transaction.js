@@ -47,7 +47,7 @@ const transactionSchema = new mongoose.Schema({
   },
   paymentProvider: {
     type: String,
-    enum: ['mpesa', 'paystack', 'manual'],
+    enum: ['mpesa', 'paystack', 'manual', 'flutterwave'],
     default: 'manual'
   },
   // M-Pesa specific fields

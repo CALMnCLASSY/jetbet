@@ -22,8 +22,8 @@ self.addEventListener('install', event => {
 self.addEventListener('fetch', event => {
   const requestUrl = new URL(event.request.url);
 
-  // Exclude API calls and socket.io from caching entirely
-  if (requestUrl.pathname.startsWith('/api/') || requestUrl.pathname.includes('socket.io')) {
+  // Exclude non-HTTP/HTTPS schemes, API calls, and socket.io from caching entirely
+  if (!requestUrl.protocol.startsWith('http') || requestUrl.pathname.startsWith('/api/') || requestUrl.pathname.includes('socket.io')) {
     return;
   }
 
