@@ -113,7 +113,7 @@ async function populateRoundSchedule() {
 
     if (bulkOps.length > 0) {
       const result = await RoundSchedule.bulkWrite(bulkOps, { ordered: false });
-      console.log(`✅ Populated ${bulkOps.length} rounds (${result.upsertedCount} new, ${result.modifiedCount} updated)`);
+      // console.log(`✅ Populated ${bulkOps.length} rounds (${result.upsertedCount} new, ${result.modifiedCount} updated)`);
       return bulkOps.length;
     }
 

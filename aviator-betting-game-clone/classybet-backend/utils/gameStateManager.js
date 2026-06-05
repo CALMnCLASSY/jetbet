@@ -58,7 +58,7 @@ class GameStateManager {
     try {
       // If we already have a nextRound cached, promote it to currentRound
       if (this.nextRound) {
-        console.log(`🔄 Promoting cached round: ${this.nextRound.roundId}`);
+        // console.log(`🔄 Promoting cached round: ${this.nextRound.roundId}`);
         this.currentRound = this.nextRound;
         this.crashMultiplier = this.nextRound.multiplier;
         
@@ -190,7 +190,7 @@ class GameStateManager {
           multiplier: generateMultiplier(nextRoundId, nextStartTime),
           startTime: nextStartTime
         };
-        console.log(`⚡ Created temporary next round: ${this.nextRound.roundId} (${this.nextRound.multiplier}x)`);
+        // console.log(`⚡ Created temporary next round: ${this.nextRound.roundId} (${this.nextRound.multiplier}x)`);
         
         // Trigger population to ensure this round gets saved
         const { populateRoundSchedule } = require('./roundScheduler');
@@ -314,7 +314,7 @@ class GameStateManager {
             }).sort({ startTime: 1 });
             
             if (!futureRound) {
-              console.log('🔄 Triggering population for future rounds...');
+              // console.log('🔄 Triggering population for future rounds...');
               const { populateRoundSchedule } = require('./roundScheduler');
               await populateRoundSchedule();
             }
@@ -371,7 +371,7 @@ class GameStateManager {
     // Log nextRound availability for debugging
     if (this.currentState === 'countdown' || this.currentState === 'flying') {
       if (statePayload.nextRound) {
-        console.log(`📡 Broadcasting: Round ${statePayload.roundId} | Next: ${statePayload.nextRound.roundId} (${statePayload.nextRound.multiplier}x)`);
+        // console.log(`📡 Broadcasting: Round ${statePayload.roundId} | Next: ${statePayload.nextRound.roundId} (${statePayload.nextRound.multiplier}x)`);
       } else {
         console.warn(`⚠️ Broadcasting: Round ${statePayload.roundId} | Next: NOT AVAILABLE`);
       }
