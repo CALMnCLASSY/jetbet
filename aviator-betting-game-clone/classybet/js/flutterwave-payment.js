@@ -1,7 +1,7 @@
 /**
  * Flutterwave Payment Integration
- * Handles multi-currency deposits with Paystack fallback.
- * Checks for adblocker/ISP blocks on the FLW SDK and falls back client-side.
+ * Handles multi-currency deposits.
+ * Checks for adblocker/ISP blocks on the FLW SDK and alerts client-side.
  */
 
 (function () {
@@ -64,20 +64,7 @@
                 throw new Error(data.error || 'Failed to initialize payment');
             }
 
-            console.log('✅ Payment initialized on backend. Provider:', data.provider);
-
-            // Handle provider response (can be paystack if fallback occurred on the backend)
-            if (data.provider === 'paystack') {
-                console.log('ℹ️ Backend fell back to Paystack.');
-                if (data.data && data.data.authorization_url) {
-                    window.location.href = data.data.authorization_url;
-                } else if (typeof window.initiateOriginalPaystackDeposit === 'function') {
-                    window.initiateOriginalPaystackDeposit(amount);
-                } else {
-                    throw new Error('Paystack payment system is currently unavailable.');
-                }
-                return;
-            }
+            console.log('✅ Payment initialized on backend.');
 
             // Redirect user to Flutterwave hosted payment link
             if (data.data && data.data.payment_link) {
@@ -92,12 +79,7 @@
             
             // Catch script load error (ad-blockers, regional blocks)
             if (error.message && error.message.includes('SDK failed to load')) {
-                showNotification('Flutterwave SDK is blocked (e.g. by adblocker). Re-routing to Paystack...', 'warning');
-                if (typeof window.initiateOriginalPaystackDeposit === 'function') {
-                    window.initiateOriginalPaystackDeposit(amount);
-                } else {
-                    showNotification('Fallback payment gateway is currently unavailable.', 'error');
-                }
+                showNotification('Flutterwave SDK failed to load. If you use an ad-blocker, please disable it to make a deposit.', 'error');
             } else {
                 showNotification(error.message || 'Failed to initiate deposit', 'error');
             }

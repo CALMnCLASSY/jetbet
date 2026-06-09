@@ -7,8 +7,7 @@
     <title>JetBet Profile</title>
     <link rel="manifest" href="manifest.json">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
-    <!-- Paystack SDK -->
-    <script src="https://js.paystack.co/v1/inline.js"></script>
+
     <style>
         * {
             margin: 0;
@@ -1192,7 +1191,7 @@
                             style="display: none; color: #ccae00; padding: 10px; border: 1px solid #ccae00; border-radius: 8px; margin-bottom: 1rem; text-align: center; background: rgba(255, 215, 0, 0.1);">
                         </div>
 
-                        <form id="deposit-form" onsubmit="handlePaystackDeposit(event)">
+                        <form id="deposit-form" onsubmit="handleDepositSubmit(event)">
                             <div class="form-group">
                                 <label for="deposit-amount">Amount (<span id="currency-code"></span>)</label>
                                 <input type="number" id="deposit-amount" class="form-control" min="349" max="150000"
@@ -1224,7 +1223,7 @@
                                     <li>🔐 Secure & Instant Processing</li>
                                 </ul>
                                 <p style="color: #999; font-size: 0.85rem; margin-top: 0.75rem; margin-bottom: 0;">
-                                    <i class="fas fa-shield-alt"></i> Powered by Paystack - Payment methods vary by
+                                    <i class="fas fa-shield-alt"></i> Powered by Flutterwave - Payment methods vary by
                                     country
                                 </p>
                             </div>
@@ -1745,8 +1744,8 @@
             }
         });
 
-        // Paystack Deposit form handler
-        async function handlePaystackDeposit(event) {
+        // Deposit form handler
+        async function handleDepositSubmit(event) {
             event.preventDefault();
 
             const amount = document.getElementById('deposit-amount').value;
@@ -1761,7 +1760,7 @@
                 if (typeof initiateFlutterwaveDeposit === 'function') {
                     await initiateFlutterwaveDeposit(parseFloat(amount));
                 } else {
-                    await initiatePaystackDeposit(parseFloat(amount));
+                    throw new Error('Payment system is currently unavailable. Please refresh or try again.');
                 }
             } catch (error) {
                 errorDiv.textContent = error.message;
@@ -2266,8 +2265,8 @@
             btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Initializing...';
             
             try {
-                // Initialize Paystack deposit with special metadata
-                const response = await fetch(`${API_BASE}/api/payments/deposit-initialize`, {
+                // Initialize Flutterwave deposit with special metadata
+                const response = await fetch(`${API_BASE}/api/payments/flw-deposit-initialize`, {
                     method: 'POST',
                     headers: {
                         'Authorization': `Bearer ${authToken}`,
@@ -2281,24 +2280,10 @@
 
                 const data = await response.json();
 
-                if (response.ok) {
-                    // Open Paystack checkout
-                    const handler = PaystackPop.setup({
-                        key: (typeof PAYSTACK_PUBLIC_KEY !== 'undefined') ? PAYSTACK_PUBLIC_KEY : 'pk_live_4b4f3a0ed97c13680b6a29897e6624734c072f54',
-                        email: currentUser.email || `${currentUser.username}@jetbet.com`,
-                        amount: data.data.amount,
-                        currency: data.data.currency,
-                        ref: data.data.reference,
-                        callback: function(response) {
-                            // Verify payment on backend
-                            verifyActivationPayment(response.reference);
-                        },
-                        onClose: function() {
-                            btn.disabled = false;
-                            btn.innerHTML = '<i class="fas fa-rocket"></i> Activate Now';
-                        }
-                    });
-                    handler.openIframe();
+                if (response.ok && data.success && data.data && data.data.payment_link) {
+                    // Redirect to Flutterwave checkout page
+                    console.log('Redirecting to Flutterwave checkout for activation fee:', data.data.payment_link);
+                    window.location.href = data.data.payment_link;
                 } else {
                     alert(data.error || 'Failed to initialize payment');
                     btn.disabled = false;
@@ -2309,36 +2294,6 @@
                 alert('Connection error. Please try again.');
                 btn.disabled = false;
                 btn.innerHTML = '<i class="fas fa-rocket"></i> Activate Now';
-            }
-        }
-
-        async function verifyActivationPayment(reference) {
-            closeReactivationModal();
-            // Show a global loading/processing UI if available, or just alert
-            const btn = document.getElementById('activate-btn');
-            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Verifying...';
-
-            try {
-                const response = await fetch(`${API_BASE}/api/payments/deposit-verify`, {
-                    method: 'POST',
-                    headers: {
-                        'Authorization': `Bearer ${authToken}`,
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({ reference })
-                });
-
-                const data = await response.json();
-
-                if (response.ok) {
-                    alert('Success! Your account has been reactivated and your withdrawal has been approved.');
-                    loadUserProfile(); // Refresh all data
-                } else {
-                    alert('Verification failed: ' + (data.error || 'Unknown error'));
-                }
-            } catch (error) {
-                console.error('Verification error:', error);
-                alert('Connection error during verification. Your payment was successful, please refresh in a moment.');
             }
         }
 
@@ -2898,9 +2853,7 @@
     </script>
     <!-- Currency Utils -->
     <script src="js/currency-utils.js"></script>
-    <!-- Paystack Payment Integration -->
-    <script src="https://js.paystack.co/v1/inline.js"></script>
-    <script src="js/paystack-payment.js"></script>
+
     <!-- Flutterwave Payment Integration -->
     <script src="js/flutterwave-payment.js"></script>
 </body>

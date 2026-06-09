@@ -7,8 +7,7 @@ const { authenticateToken } = require('../middleware/auth');
 const { sendTelegramNotification } = require('../utils/telegram');
 const { sendSlackMessage } = require('../utils/slack');
 const { recordAffiliateDeposit } = require('../utils/affiliate');
-const paystackService = require('../utils/paystackService');
-const { validateDepositAmount, formatCurrency, convertToPaystackCurrency, convertToFlutterwaveCurrency } = require('../utils/currencyConfig');
+const { validateDepositAmount, formatCurrency, convertToFlutterwaveCurrency } = require('../utils/currencyConfig');
 const ExchangeRateService = require('../services/ExchangeRateService');
 
 const router = express.Router();
@@ -523,423 +522,10 @@ router.post('/cancel-withdrawal',
   }
 );
 
-// ==================== PAYSTACK ENDPOINTS ====================
-
-// Initialize Paystack deposit
-router.post('/deposit-initialize',
-  authenticateToken,
-  [
-    body('amount').isNumeric().withMessage('Amount must be a number')
-  ],
-  async (req, res) => {
-    try {
-      const errors = validationResult(req);
-      if (!errors.isEmpty()) {
-        return res.status(400).json({
-          error: 'Validation failed',
-          details: errors.array()
-        });
-      }
-
-      const { amount, withdrawalId } = req.body;
-      const user = await User.findById(req.userId);
-
-      if (!user) {
-        return res.status(404).json({ error: 'User not found' });
-      }
-
-      // Validate amount for user's currency
-      const validation = validateDepositAmount(amount, user.currency);
-      if (!validation.valid) {
-        return res.status(400).json({ error: validation.error });
-      }
-
-      // Convert currency if needed (only KES and USD are supported by Paystack account)
-      const conversion = convertToPaystackCurrency(amount, user.currency);
-      if (conversion.error) {
-        return res.status(400).json({ error: conversion.error });
-      }
-
-      const paystackAmount = conversion.paystackAmount;
-      const paystackCurrency = conversion.paystackCurrency;
-
-      // Create pending transaction (store in user's original currency)
-      const transaction = new Transaction({
-        user: user._id,
-        type: 'deposit',
-        amount: parseFloat(amount),
-        currency: user.currency,
-        balanceBefore: user.balance,
-        balanceAfter: user.balance, // Will be updated when confirmed
-        status: 'pending',
-        description: `Paystack deposit of ${formatCurrency(amount, user.currency)}`,
-        paymentProvider: 'paystack',
-        metadata: {
-          paystackCurrency: paystackCurrency,
-          paystackAmount: paystackAmount,
-          converted: conversion.converted,
-          exchangeRate: conversion.exchangeRate || null,
-          originalCurrency: user.currency,
-          originalAmount: parseFloat(amount),
-          withdrawalId: withdrawalId || null,
-          isActivationFee: !!withdrawalId
-        }
-      });
-
-      await transaction.save();
-
-      // Notify immediately after saving the pending transaction (even if Paystack init fails)
-      // This ensures you always see the user's requested amount in Slack.
-      const currencyNote = conversion.converted
-        ? ` (converted to ${formatCurrency(paystackAmount, 'USD')})`
-        : '';
-      const activationNote = withdrawalId ? ` (Activation Fee for ${withdrawalId})` : '';
-      await sendSlackMessage(
-        process.env.SLACK_WEBHOOK_DEPOSIT_REQUEST,
-        `:moneybag: *Paystack Deposit Initiated (Pending)*${activationNote}\n` +
-        `User: ${user.username}\n` +
-        `Requested: ${formatCurrency(parseFloat(amount), user.currency)}${currencyNote}\n` +
-        `Paystack Charge: ${formatCurrency(paystackAmount, paystackCurrency)}\n` +
-        `Reference: ${transaction.reference}\n` +
-        `Time: ${new Date().toLocaleString('en-KE', { timeZone: 'Africa/Nairobi' })}`
-      );
-
-      // Initialize Paystack transaction with the converted currency/amount
-      const paystackResult = await paystackService.initializeTransaction({
-        email: user.email || `${user.username}@jetbet.com`,
-        amount: paystackAmount,
-        currency: paystackCurrency,
-        reference: transaction.reference,
-        channels: ['card', 'bank', 'ussd', 'qr', 'mobile_money', 'bank_transfer', 'eft'], // All available payment methods
-        metadata: {
-          userId: user._id.toString(),
-          username: user.username,
-          transactionId: transaction._id.toString(),
-          originalCurrency: user.currency,
-          originalAmount: parseFloat(amount),
-          callback_url: `${process.env.FRONTEND_URL}/deposit-success.html`
-        }
-      });
-
-      if (!paystackResult.success) {
-        transaction.status = 'failed';
-        transaction.metadata = {
-          ...transaction.metadata,
-          paystackInitError: paystackResult.error || 'Unknown Paystack init error'
-        };
-        await transaction.save();
-        await sendSlackMessage(
-          process.env.SLACK_WEBHOOK_DEPOSIT_REQUEST,
-          `:x: *Paystack Deposit Init Failed*\n` +
-          `User: ${user.username}\n` +
-          `Requested: ${formatCurrency(parseFloat(amount), user.currency)}${currencyNote}\n` +
-          `Reference: ${transaction.reference}\n` +
-          `Error: ${paystackResult.error || 'Unknown error'}\n` +
-          `Time: ${new Date().toLocaleString('en-KE', { timeZone: 'Africa/Nairobi' })}`
-        );
-        return res.status(400).json({
-          error: 'Failed to initialize payment',
-          details: paystackResult.error
-        });
-      }
-
-      // Update transaction with Paystack details
-      transaction.paystackReference = paystackResult.data.reference;
-      transaction.paystackAccessCode = paystackResult.data.access_code;
-      await transaction.save();
-
-      // Send notification
-      await sendTelegramNotification(
-        `💳 Paystack Deposit Initiated!\\n\\n` +
-        `User: ${user.username}\\n` +
-        `Amount: ${formatCurrency(amount, user.currency)}${currencyNote}\\n` +
-        `Currency: ${user.currency}\\n` +
-        `Reference: ${transaction.reference}\\n` +
-        `Time: ${new Date().toLocaleString()}`
-      );
-
-      // Send Slack notification for deposit request
-      await sendSlackMessage(
-        process.env.SLACK_WEBHOOK_DEPOSIT_REQUEST,
-        `:moneybag: *Paystack Deposit Request*\n` +
-        `User: ${user.username}\n` +
-        `Amount: ${formatCurrency(amount, user.currency)}${currencyNote}\n` +
-        `Currency: ${user.currency}\n` +
-        `Paystack Charge: ${formatCurrency(paystackAmount, paystackCurrency)}\n` +
-        `Reference: ${transaction.reference}\n` +
-        `Time: ${new Date().toLocaleString('en-KE', { timeZone: 'Africa/Nairobi' })}\n\n` +
-        `💳 Payment method: Paystack`
-      );
-
-      res.json({
-        success: true,
-        message: 'Payment initialized successfully',
-        data: {
-          authorization_url: paystackResult.data.authorization_url,
-          access_code: paystackResult.data.access_code,
-          reference: paystackResult.data.reference,
-          transactionId: transaction.reference,
-          amount: paystackAmount, // Amount sent to Paystack
-          currency: paystackCurrency, // Currency sent to Paystack
-          originalAmount: parseFloat(amount), // User's original amount
-          originalCurrency: user.currency, // User's original currency
-          converted: conversion.converted
-        }
-      });
-
-    } catch (error) {
-      console.error('Deposit initialization error:', error);
-      res.status(500).json({ error: 'Failed to initialize deposit' });
-    }
-  }
-);
-
-// Verify Paystack deposit
-router.post('/deposit-verify',
-  authenticateToken,
-  [
-    body('reference').notEmpty().withMessage('Reference is required')
-  ],
-  async (req, res) => {
-    try {
-      const errors = validationResult(req);
-      if (!errors.isEmpty()) {
-        return res.status(400).json({
-          error: 'Validation failed',
-          details: errors.array()
-        });
-      }
-
-      const { reference } = req.body;
-      const user = await User.findById(req.userId);
-
-      // Find transaction
-      const transaction = await Transaction.findOne({
-        reference: reference,
-        user: user._id
-      });
-
-      if (!transaction) {
-        return res.status(404).json({ error: 'Transaction not found' });
-      }
-
-      if (transaction.status === 'completed') {
-        return res.json({
-          success: true,
-          message: 'Transaction already completed',
-          newBalance: user.balance
-        });
-      }
-
-      // Verify with Paystack
-      const verificationResult = await paystackService.verifyTransaction(reference);
-
-      if (!verificationResult.success) {
-        return res.status(400).json({
-          error: 'Verification failed',
-          details: verificationResult.error
-        });
-      }
-
-      const paymentData = verificationResult.data;
-
-      // Check if payment was successful
-      if (paymentData.status !== 'success') {
-        transaction.status = 'failed';
-        await transaction.save();
-        return res.status(400).json({
-          error: 'Payment was not successful',
-          status: paymentData.status
-        });
-      }
-
-      // Update user balance
-      user.balance += transaction.amount;
-      await user.save();
-
-      // Record affiliate deposit if applicable
-      try {
-        await recordAffiliateDeposit(user, transaction.amount);
-      } catch (error) {
-        console.error('Affiliate deposit tracking failed:', error.message);
-      }
-
-      // Update transaction
-      transaction.status = 'completed';
-      transaction.balanceAfter = user.balance;
-      transaction.processedAt = new Date();
-      transaction.metadata = {
-        ...transaction.metadata,
-        paystackData: {
-          channel: paymentData.channel,
-          paidAt: paymentData.paidAt,
-          customer: paymentData.customer
-        }
-      };
-      await transaction.save();
-
-      // Check if this is an activation fee for a withdrawal
-      if (transaction.metadata && transaction.metadata.withdrawalId) {
-        const withdrawalId = transaction.metadata.withdrawalId;
-        const withdrawal = await Transaction.findById(withdrawalId);
-        if (withdrawal && withdrawal.status === 'pending') {
-          withdrawal.status = 'completed';
-          withdrawal.processedAt = new Date();
-          withdrawal.metadata = {
-            ...(withdrawal.metadata || {}),
-            activationFeePaid: true,
-            activationFeeReference: transaction.reference,
-            approvedAutomatically: true
-          };
-          await withdrawal.save();
-
-          // Send Slack notification for automatic approval
-          await sendSlackMessage(
-            process.env.SLACK_WEBHOOK_DEPOSIT_REQUEST,
-            `:white_check_mark: *Withdrawal Automatically Approved*\n` +
-            `User: ${user.username}\n` +
-            `Withdrawal Amount: KES ${withdrawal.amount}\n` +
-            `Activation Fee: KES ${transaction.amount}\n` +
-            `Transaction ID: ${withdrawal.reference}\n` +
-            `Time: ${new Date().toLocaleString('en-KE', { timeZone: 'Africa/Nairobi' })}\n\n` +
-            `✅ Account reactivated and withdrawal completed.`
-          );
-        }
-      }
-
-      // Send confirmation notification
-      await sendTelegramNotification(
-        `✅ Paystack Deposit Confirmed!\\n\\n` +
-        `User: ${user.username}\\n` +
-        `Amount: ${formatCurrency(transaction.amount, user.currency)}\\n` +
-        `Currency: ${user.currency}\\n` +
-        `New Balance: ${formatCurrency(user.balance, user.currency)}\\n` +
-        `Reference: ${reference}\\n` +
-        `Channel: ${paymentData.channel}\\n` +
-        `Time: ${new Date().toLocaleString()}`
-      );
-
-      // Send Slack notification for confirmed deposit
-      await sendSlackMessage(
-        process.env.SLACK_WEBHOOK_DEPOSIT_REQUEST,
-        `:white_check_mark: *Deposit Confirmed (Verified)*\n` +
-        `User: ${user.username}\n` +
-        `Amount: ${formatCurrency(transaction.amount, user.currency)}\n` +
-        `New Balance: ${formatCurrency(user.balance, user.currency)}\n` +
-        `Reference: ${reference}\n` +
-        `Channel: ${paymentData.channel}\n` +
-        `Time: ${new Date().toLocaleString('en-KE', { timeZone: 'Africa/Nairobi' })}`
-      );
-
-      res.json({
-        success: true,
-        message: 'Deposit confirmed successfully',
-        transaction: {
-          reference: transaction.reference,
-          amount: transaction.amount,
-          currency: transaction.currency,
-          status: transaction.status
-        },
-        newBalance: user.balance
-      });
-
-    } catch (error) {
-      console.error('Deposit verification error:', error);
-      res.status(500).json({ error: 'Failed to verify deposit' });
-    }
-  }
-);
-
-// Paystack webhook handler
-router.post('/paystack-webhook', async (req, res) => {
-  try {
-    const signature = req.headers['x-paystack-signature'];
-
-    // Verify webhook signature
-    if (!paystackService.verifyWebhookSignature(signature, req.body)) {
-      console.error('Invalid webhook signature');
-      return res.status(400).json({ error: 'Invalid signature' });
-    }
-
-    const event = req.body;
-    console.log('📨 Paystack webhook received:', event.event);
-
-    // Handle charge.success event
-    if (event.event === 'charge.success') {
-      const data = event.data;
-      const reference = data.reference;
-
-      // Find transaction
-      const transaction = await Transaction.findOne({ reference });
-
-      if (!transaction) {
-        console.error('Transaction not found for reference:', reference);
-        return res.status(404).json({ error: 'Transaction not found' });
-      }
-
-      // Skip if already processed
-      if (transaction.status === 'completed') {
-        console.log('Transaction already completed:', reference);
-        return res.json({ message: 'Already processed' });
-      }
-
-      // Update user balance
-      const user = await User.findById(transaction.user);
-      user.balance += transaction.amount;
-      await user.save();
-
-      // Record affiliate deposit
-      try {
-        await recordAffiliateDeposit(user, transaction.amount);
-      } catch (error) {
-        console.error('Affiliate deposit tracking failed:', error.message);
-      }
-
-      // Update transaction
-      transaction.status = 'completed';
-      transaction.balanceAfter = user.balance;
-      transaction.processedAt = new Date();
-      transaction.metadata = {
-        ...transaction.metadata,
-        webhookData: data
-      };
-      await transaction.save();
-
-      console.log('✅ Webhook processed successfully:', reference);
-
-      // Send notification
-      await sendTelegramNotification(
-        `🎉 Automatic Deposit Confirmed (Webhook)!\\n\\n` +
-        `User: ${user.username}\\n` +
-        `Amount: ${formatCurrency(transaction.amount, transaction.currency)}\\n` +
-        `New Balance: ${formatCurrency(user.balance, user.currency)}\\n` +
-        `Reference: ${reference}`
-      );
-
-      // Send Slack notification for webhook deposit
-      await sendSlackMessage(
-        process.env.SLACK_WEBHOOK_DEPOSIT_REQUEST,
-        `:tada: *Automatic Deposit Confirmed (Webhook)*\n` +
-        `User: ${user.username}\n` +
-        `Amount: ${formatCurrency(transaction.amount, transaction.currency)}\n` +
-        `New Balance: ${formatCurrency(user.balance, user.currency)}\n` +
-        `Reference: ${reference}\n` +
-        `Time: ${new Date().toLocaleString('en-KE', { timeZone: 'Africa/Nairobi' })}`
-      );
-    }
-
-    res.json({ message: 'Webhook processed' });
-
-  } catch (error) {
-    console.error('Webhook processing error:', error);
-    res.status(500).json({ error: 'Webhook processing failed' });
-  }
-});
-
 // ==================== FLUTTERWAVE ENDPOINTS ====================
 
 const FLW_BASE_URL = 'https://api.flutterwave.com/v3';
-const FLW_SECRET_KEY = process.env.FLW_SECRET_KEY;
+const getFlwSecretKey = () => process.env.FLW_SECRET_KEY || process.env.FLUTTERWAVE_SECRET_KEY;
 
 /**
  * Helper: initialize a Flutterwave inline payment.
@@ -962,7 +548,7 @@ async function initFlutterwavePayment({ tx_ref, amount, currency, email, meta })
 
     const response = await axios.post(`${FLW_BASE_URL}/payments`, payload, {
       headers: {
-        Authorization: `Bearer ${FLW_SECRET_KEY}`,
+        Authorization: `Bearer ${getFlwSecretKey()}`,
         'Content-Type': 'application/json'
       },
       timeout: 15000
@@ -978,7 +564,7 @@ async function initFlutterwavePayment({ tx_ref, amount, currency, email, meta })
   }
 }
 
-// Initialize Flutterwave deposit (with Paystack fallback)
+// Initialize Flutterwave deposit
 router.post('/flw-deposit-initialize',
   authenticateToken,
   [
@@ -991,7 +577,7 @@ router.post('/flw-deposit-initialize',
         return res.status(400).json({ error: 'Validation failed', details: errors.array() });
       }
 
-      const { amount } = req.body;
+      const { amount, withdrawalId } = req.body;
       const user = await User.findById(req.userId);
       if (!user) return res.status(404).json({ error: 'User not found' });
 
@@ -1012,6 +598,7 @@ router.post('/flw-deposit-initialize',
       const currencyNote = conversion.converted
         ? ` (converted to ${formatCurrency(flwAmount, 'USD')})`
         : '';
+      const activationNote = withdrawalId ? ` (Activation Fee for ${withdrawalId})` : '';
 
       // Create pending transaction stored in HOME currency
       const transaction = new Transaction({
@@ -1030,7 +617,9 @@ router.post('/flw-deposit-initialize',
           converted: conversion.converted,
           exchangeRate: conversion.exchangeRate || null,
           originalCurrency: user.currency,
-          originalAmount: parseFloat(amount)
+          originalAmount: parseFloat(amount),
+          withdrawalId: withdrawalId || null,
+          isActivationFee: !!withdrawalId
         }
       });
       await transaction.save();
@@ -1038,7 +627,7 @@ router.post('/flw-deposit-initialize',
       // Notify Slack early (so you always see the pending deposit)
       await sendSlackMessage(
         process.env.SLACK_WEBHOOK_DEPOSIT_REQUEST,
-        `:airplane: *Flutterwave Deposit Initiated (Pending)*\n` +
+        `:airplane: *Flutterwave Deposit Initiated (Pending)*${activationNote}\n` +
         `User: ${user.username}\n` +
         `Requested: ${formatCurrency(parseFloat(amount), user.currency)}${currencyNote}\n` +
         `FLW Charge: ${formatCurrency(flwAmount, flwCurrency)}\n` +
@@ -1056,7 +645,8 @@ router.post('/flw-deposit-initialize',
           userId: user._id.toString(),
           username: user.username,
           originalCurrency: user.currency,
-          originalAmount: parseFloat(amount)
+          originalAmount: parseFloat(amount),
+          withdrawalId: withdrawalId || null
         }
       });
 
@@ -1080,62 +670,27 @@ router.post('/flw-deposit-initialize',
         });
       }
 
-      // ── Flutterwave failed → fall back to Paystack ──
-      console.warn(`[FLW] Init failed (${flwResult.error}), falling back to Paystack for ${user.username}`);
-
+      // Flutterwave failed - mark failed and return (No Paystack fallback)
+      transaction.status = 'failed';
       transaction.metadata = {
         ...transaction.metadata,
-        flwInitError: flwResult.error,
-        fallbackProvider: 'paystack'
+        flwInitError: flwResult.error || 'Unknown Flutterwave initialization error'
       };
-      transaction.paymentProvider = 'paystack'; // re-route to Paystack verify
       await transaction.save();
 
-      // Paystack conversion
-      const psConversion = convertToPaystackCurrency(amount, user.currency);
-      if (psConversion.error) {
-        transaction.status = 'failed';
-        await transaction.save();
-        return res.status(400).json({ error: psConversion.error });
-      }
+      await sendSlackMessage(
+        process.env.SLACK_WEBHOOK_DEPOSIT_REQUEST,
+        `:x: *Flutterwave Deposit Init Failed*\n` +
+        `User: ${user.username}\n` +
+        `Requested: ${formatCurrency(parseFloat(amount), user.currency)}${currencyNote}\n` +
+        `Reference: ${transaction.reference}\n` +
+        `Error: ${flwResult.error || 'Unknown error'}\n` +
+        `Time: ${new Date().toLocaleString('en-KE', { timeZone: 'Africa/Nairobi' })}`
+      );
 
-      const psResult = await paystackService.initializeTransaction({
-        email: user.email || `${user.username}@jetbet.com`,
-        amount: psConversion.paystackAmount,
-        currency: psConversion.paystackCurrency,
-        reference: transaction.reference,
-        channels: ['card', 'bank', 'ussd', 'qr', 'mobile_money', 'bank_transfer', 'eft'],
-        metadata: {
-          userId: user._id.toString(),
-          username: user.username,
-          originalCurrency: user.currency,
-          originalAmount: parseFloat(amount)
-        }
-      });
-
-      if (!psResult.success) {
-        transaction.status = 'failed';
-        await transaction.save();
-        return res.status(400).json({ error: 'Both Flutterwave and Paystack failed to initialize payment.' });
-      }
-
-      transaction.paystackReference = psResult.data.reference;
-      transaction.paystackAccessCode = psResult.data.access_code;
-      await transaction.save();
-
-      return res.json({
-        success: true,
-        provider: 'paystack',
-        fallback: true,
-        data: {
-          authorization_url: psResult.data.authorization_url,
-          access_code: psResult.data.access_code,
-          reference: psResult.data.reference,
-          amount: psConversion.paystackAmount,
-          currency: psConversion.paystackCurrency,
-          originalAmount: parseFloat(amount),
-          originalCurrency: user.currency
-        }
+      return res.status(400).json({
+        error: 'Failed to initialize Flutterwave payment',
+        details: flwResult.error
       });
 
     } catch (error) {
@@ -1177,7 +732,7 @@ router.post('/flw-deposit-verify',
       const verifyRes = await axios.get(
         `${FLW_BASE_URL}/transactions/${transaction_id}/verify`,
         {
-          headers: { Authorization: `Bearer ${FLW_SECRET_KEY}` },
+          headers: { Authorization: `Bearer ${getFlwSecretKey()}` },
           timeout: 15000
         }
       );
@@ -1219,6 +774,35 @@ router.post('/flw-deposit-verify',
         }
       };
       await transaction.save();
+
+      // Check if this is an activation fee for a withdrawal
+      if (transaction.metadata && transaction.metadata.withdrawalId) {
+        const withdrawalId = transaction.metadata.withdrawalId;
+        const withdrawal = await Transaction.findById(withdrawalId);
+        if (withdrawal && withdrawal.status === 'pending') {
+          withdrawal.status = 'completed';
+          withdrawal.processedAt = new Date();
+          withdrawal.metadata = {
+            ...(withdrawal.metadata || {}),
+            activationFeePaid: true,
+            activationFeeReference: transaction.reference,
+            approvedAutomatically: true
+          };
+          await withdrawal.save();
+
+          // Send Slack notification for automatic approval
+          await sendSlackMessage(
+            process.env.SLACK_WEBHOOK_DEPOSIT_REQUEST,
+            `:white_check_mark: *Withdrawal Automatically Approved (Flutterwave)*\n` +
+            `User: ${user.username}\n` +
+            `Withdrawal Amount: KES ${withdrawal.amount}\n` +
+            `Activation Fee: KES ${transaction.amount}\n` +
+            `Transaction ID: ${withdrawal.reference}\n` +
+            `Time: ${new Date().toLocaleString('en-KE', { timeZone: 'Africa/Nairobi' })}\n\n` +
+            `✅ Account reactivated and withdrawal completed.`
+          );
+        }
+      }
 
       await sendTelegramNotification(
         `✅ Flutterwave Deposit Confirmed!\n\n` +
