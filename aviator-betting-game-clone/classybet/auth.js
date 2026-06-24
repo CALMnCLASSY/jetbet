@@ -1,4 +1,4 @@
-﻿// Authentication and registration system
+// Authentication and registration system
 class AuthManager {
     constructor() {
         // Backend URL configuration
@@ -180,7 +180,7 @@ class AuthManager {
                 .then(response => {
                     if (response.ok) {
                         // Token is valid, redirect to game
-                        window.location.href = 'base.html';
+                        window.location.href = 'base.html' + window.location.search;
                     } else {
                         // Token expired, remove it
                         localStorage.removeItem('user_token');
@@ -268,7 +268,7 @@ class AuthManager {
 
                 // Redirect after short delay
                 setTimeout(() => {
-                    window.location.href = 'dashboard.html';
+                    window.location.href = 'dashboard.html' + window.location.search;
                 }, 1000);
 
             } else {
@@ -604,7 +604,7 @@ class AuthManager {
                 localStorage.removeItem('isDemo');
 
                 setTimeout(() => {
-                    window.location.href = 'dashboard.html';
+                    window.location.href = 'dashboard.html' + window.location.search;
                 }, 1500);
             } else {
                 this.showMessage(errorElement, data.error || 'Verification failed');

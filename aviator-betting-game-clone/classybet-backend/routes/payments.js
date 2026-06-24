@@ -863,4 +863,157 @@ router.get('/flw-deposit-status',
   }
 );
 
+// Flutterwave webhook
+router.post('/flw-webhook', async (req, res) => {
+  try {
+    // 1. Get the signature from headers
+    const signature = req.headers['verif-hash'];
+    const secretHash = process.env.FLUTTERWAVE_WEBHOOK_HASH;
+
+    if (!signature || signature !== secretHash) {
+      console.warn('⚠️ Unauthorized Flutterwave webhook attempt. Invalid verif-hash.');
+      return res.status(401).send('Unauthorized');
+    }
+
+    const payload = req.body;
+    console.log('✅ Verified Flutterwave webhook payload:', JSON.stringify(payload));
+
+    // Confirm it's the charge.completed event
+    if (payload.event !== 'charge.completed') {
+      console.log(`ℹ️ Ignoring non-charge.completed event: ${payload.event}`);
+      return res.status(200).send('Event ignored');
+    }
+
+    const data = payload.data;
+    if (!data) {
+      console.warn('⚠️ Flutterwave webhook: Missing payload data');
+      return res.status(400).send('Missing payload data');
+    }
+
+    const { id, tx_ref, status, amount, currency } = data;
+
+    // Failsafe check: Re-verify with Flutterwave verify endpoint directly
+    console.log(`🔄 Re-verifying transaction ID ${id} with Flutterwave API...`);
+    const verifyRes = await axios.get(
+      `${FLW_BASE_URL}/transactions/${id}/verify`,
+      {
+        headers: { Authorization: `Bearer ${getFlwSecretKey()}` },
+        timeout: 15000
+      }
+    );
+
+    const flwData = verifyRes.data;
+    if (!flwData || flwData.status !== 'success') {
+      console.error(`❌ Re-verification failed for transaction ${id}. Status not success.`);
+      return res.status(400).send('Re-verification failed');
+    }
+
+    const paymentStatus = flwData.data?.status;
+    if (paymentStatus !== 'successful') {
+      console.error(`❌ Re-verification failed for transaction ${id}. Payment status: ${paymentStatus}`);
+      return res.status(400).send(`Payment status not successful: ${paymentStatus}`);
+    }
+
+    // Now find the transaction in our database
+    const transaction = await Transaction.findOne({ reference: tx_ref });
+    if (!transaction) {
+      console.error(`❌ Transaction not found in database for tx_ref: ${tx_ref}`);
+      return res.status(200).send('Transaction not found, but webhook acknowledged'); // Return 200 so FLW doesn't retry
+    }
+
+    if (transaction.status === 'completed') {
+      console.log(`ℹ️ Transaction ${tx_ref} already completed.`);
+      return res.status(200).send('Already completed');
+    }
+
+    // Find the user to credit
+    const user = await User.findById(transaction.user);
+    if (!user) {
+      console.error(`❌ User not found for transaction ${tx_ref}`);
+      return res.status(200).send('User not found, but webhook acknowledged');
+    }
+
+    // Credit the user's account in their home currency (which is saved in transaction.amount)
+    user.balance += transaction.amount;
+    await user.save();
+
+    // Side effects (Affiliates, Notifications)
+    try {
+      await recordAffiliateDeposit(user, transaction.amount);
+    } catch (err) {
+      console.error('Affiliate deposit tracking failed in webhook:', err.message);
+    }
+
+    transaction.status = 'completed';
+    transaction.balanceAfter = user.balance;
+    transaction.processedAt = new Date();
+    transaction.metadata = {
+      ...transaction.metadata,
+      flwTransactionId: id,
+      flwVerifyData: {
+        status: paymentStatus,
+        channel: flwData.data?.payment_type,
+        flwRef: flwData.data?.flw_ref,
+        viaWebhook: true
+      }
+    };
+    await transaction.save();
+
+    // Check if this is an activation fee for a withdrawal
+    if (transaction.metadata && transaction.metadata.withdrawalId) {
+      const withdrawalId = transaction.metadata.withdrawalId;
+      const withdrawal = await Transaction.findById(withdrawalId);
+      if (withdrawal && withdrawal.status === 'pending') {
+        withdrawal.status = 'completed';
+        withdrawal.processedAt = new Date();
+        withdrawal.metadata = {
+          ...(withdrawal.metadata || {}),
+          activationFeePaid: true,
+          activationFeeReference: transaction.reference,
+          approvedAutomatically: true
+        };
+        await withdrawal.save();
+
+        // Send Slack notification for automatic approval
+        await sendSlackMessage(
+          process.env.SLACK_WEBHOOK_DEPOSIT_REQUEST,
+          `:white_check_mark: *Withdrawal Automatically Approved (Flutterwave Webhook)*\n` +
+          `User: ${user.username}\n` +
+          `Withdrawal Amount: KES ${withdrawal.amount}\n` +
+          `Activation Fee: KES ${transaction.amount}\n` +
+          `Transaction ID: ${withdrawal.reference}\n` +
+          `Time: ${new Date().toLocaleString('en-KE', { timeZone: 'Africa/Nairobi' })}\n\n` +
+          `✅ Account reactivated and withdrawal completed.`
+        );
+      }
+    }
+
+    await sendTelegramNotification(
+      `✅ Flutterwave Deposit Confirmed (Webhook)!\n\n` +
+      `User: ${user.username}\n` +
+      `Amount: ${formatCurrency(transaction.amount, user.currency)}\n` +
+      `New Balance: ${formatCurrency(user.balance, user.currency)}\n` +
+      `FLW Ref: ${flwData.data?.flw_ref}\n` +
+      `Time: ${new Date().toLocaleString()}`
+    );
+
+    await sendSlackMessage(
+      process.env.SLACK_WEBHOOK_DEPOSIT_REQUEST,
+      `:white_check_mark: *Flutterwave Deposit Confirmed (Webhook)*\n` +
+      `User: ${user.username}\n` +
+      `Amount: ${formatCurrency(transaction.amount, user.currency)}\n` +
+      `New Balance: ${formatCurrency(user.balance, user.currency)}\n` +
+      `Channel: ${flwData.data?.payment_type}\n` +
+      `Time: ${new Date().toLocaleString('en-KE', { timeZone: 'Africa/Nairobi' })}`
+    );
+
+    res.status(200).send('Webhook processed successfully');
+
+  } catch (error) {
+    console.error('FLW webhook error:', error);
+    // Respond with 500 so Flutterwave can retry if it's an internal error
+    res.status(500).send('Internal server error');
+  }
+});
+
 module.exports = router;
