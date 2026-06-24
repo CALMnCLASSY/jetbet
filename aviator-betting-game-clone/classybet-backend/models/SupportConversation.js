@@ -8,17 +8,19 @@ const messageSchema = new mongoose.Schema({
 
 const supportConversationSchema = new mongoose.Schema({
     userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
-    username: { type: String, default: '' },
+    username: { type: String, default: 'Guest' },
     sessionId: { type: String, required: true },
     messages: [messageSchema],
     status: { type: String, enum: ['open', 'closed'], default: 'open' },
+    isEscalated: { type: Boolean, default: false },
+    agentHandover: { type: Boolean, default: false },  // kept for backward compatibility
     slackThreadTs: { type: String, default: null },
-    slackChannel: { type: String, default: null },
-    agentHandover: { type: Boolean, default: false }  // true = human agent replied, mute AI bot
+    slackChannel: { type: String, default: null }
 }, { timestamps: true });
 
-supportConversationSchema.index({ userId: 1, status: 1 });
-supportConversationSchema.index({ sessionId: 1, status: 1 });
-supportConversationSchema.index({ slackThreadTs: 1, slackChannel: 1 });
+// Sparse and compound indexes for fast lookups
+supportConversationSchema.index({ userId: 1, status: 1 }, { sparse: true });
+supportConversationSchema.index({ sessionId: 1, status: 1 }, { sparse: true });
+supportConversationSchema.index({ slackThreadTs: 1, slackChannel: 1 }, { sparse: true });
 
 module.exports = mongoose.model('SupportConversation', supportConversationSchema);

@@ -11,6 +11,7 @@ const paymentRoutes = require('./routes/payments');
 const adminRoutes = require('./routes/admin');
 const gameRoutes = require('./routes/game');
 const affiliateRoutes = require('./routes/affiliate');
+const supportRoutes = require('./routes/support');
 
 const roundRoutes = require('./routes/rounds');
 const casinoRoutes = require('./routes/casino');
@@ -107,209 +108,7 @@ app.get('/health', (req, res) => {
   });
 });
 
-// ─── Support chat -> Slack bridge (two-way) ───
-
-// Helper: extract user from JWT if present
-function extractUserFromToken(req) {
-  try {
-    const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith('Bearer ')) return null;
-    const decoded = jwt.verify(authHeader.split(' ')[1], process.env.JWT_SECRET);
-    return decoded;
-  } catch { return null; }
-}
-
-// POST /api/support/chat — send a message & persist conversation
-app.post('/api/support/chat', async (req, res) => {
-  try {
-    const { message, page, url, meta, conversationId, sessionId } = req.body || {};
-
-    if (!message || typeof message !== 'string' || !message.trim()) {
-      return res.status(400).json({ error: 'Message is required' });
-    }
-
-    const tokenUser = extractUserFromToken(req);
-    const userId = tokenUser ? tokenUser.userId : null;
-    const username = meta?.username || tokenUser?.username || 'Anonymous';
-    const sid = sessionId || `anon-${Date.now()}`;
-
-    // Find or create conversation
-    let conversation;
-    if (conversationId) {
-      conversation = await SupportConversation.findById(conversationId);
-    }
-    if (!conversation && userId) {
-      conversation = await SupportConversation.findOne({ userId, status: 'open' });
-    }
-    if (!conversation) {
-      conversation = await SupportConversation.findOne({ sessionId: sid, status: 'open' });
-    }
-    if (!conversation) {
-      conversation = new SupportConversation({
-        userId,
-        username,
-        sessionId: sid,
-        messages: [],
-        status: 'open'
-      });
-    }
-
-    // Append user message
-    const now = new Date();
-    conversation.messages.push({ from: 'user', text: message.trim(), createdAt: now });
-
-    // Build Slack text
-    const metaLines = [];
-    if (username !== 'Anonymous') metaLines.push(`*User:* ${username}`);
-    if (meta?.email) metaLines.push(`*Email:* ${meta.email}`);
-    if (meta?.phone) metaLines.push(`*Phone:* ${meta.phone}`);
-    if (page) metaLines.push(`*Page:* ${page}`);
-    const header = metaLines.length ? metaLines.join(' | ') + '\n' : '';
-    const slackText = conversation.slackThreadTs
-      ? message.trim()
-      : `:speech_balloon: *New Support Conversation*\n${header}\n${message.trim()}`;
-
-    // Post to Slack (thread if existing)
-    const channel = process.env.SLACK_SUPPORT_CHANNEL_ID;
-    if (channel) {
-      const ts = await postSlackThread(channel, slackText, conversation.slackThreadTs);
-      if (ts && !conversation.slackThreadTs) {
-        conversation.slackThreadTs = ts;
-        conversation.slackChannel = channel;
-      }
-    } else {
-      // Fallback to webhook
-      await sendSlackMessage(process.env.SLACK_WEBHOOK_SUPPORT || process.env.SLACK_WEBHOOK_PROFILE, slackText);
-    }
-
-    await conversation.save();
-
-    res.json({
-      success: true,
-      conversationId: conversation._id,
-      sessionId: conversation.sessionId,
-      messages: conversation.messages
-    });
-  } catch (error) {
-    console.error('Support chat error:', error);
-    res.status(500).json({ error: 'Failed to send support message' });
-  }
-});
-
-// GET /api/support/conversation/current — fetch latest open conversation
-app.get('/api/support/conversation/current', async (req, res) => {
-  try {
-    const tokenUser = extractUserFromToken(req);
-    const sessionId = req.query.sessionId;
-
-    let conversation = null;
-    if (tokenUser?.userId) {
-      conversation = await SupportConversation.findOne(
-        { userId: tokenUser.userId, status: 'open' }
-      ).sort({ updatedAt: -1 });
-    }
-    if (!conversation && sessionId) {
-      conversation = await SupportConversation.findOne(
-        { sessionId, status: 'open' }
-      ).sort({ updatedAt: -1 });
-    }
-
-    if (!conversation) {
-      return res.json({ conversationId: null, messages: [] });
-    }
-
-    res.json({
-      conversationId: conversation._id,
-      sessionId: conversation.sessionId,
-      messages: conversation.messages
-    });
-  } catch (error) {
-    console.error('Fetch conversation error:', error);
-    res.status(500).json({ error: 'Failed to fetch conversation' });
-  }
-});
-
-// GET /api/support/conversation/:id/updates — poll for new messages
-app.get('/api/support/conversation/:id/updates', async (req, res) => {
-  try {
-    const since = req.query.since ? new Date(req.query.since) : new Date(0);
-    const conversation = await SupportConversation.findById(req.params.id);
-    if (!conversation) {
-      return res.status(404).json({ error: 'Conversation not found' });
-    }
-
-    const newMessages = conversation.messages.filter(m => new Date(m.createdAt) > since);
-    res.json({ messages: newMessages });
-  } catch (error) {
-    console.error('Poll updates error:', error);
-    res.status(500).json({ error: 'Failed to poll updates' });
-  }
-});
-
-// POST /api/support/slack-events — receive replies from Slack
-app.post('/api/support/slack-events', async (req, res) => {
-  try {
-    // URL verification challenge
-    if (req.body.type === 'url_verification') {
-      return res.json({ challenge: req.body.challenge });
-    }
-
-    // Verify signature
-    if (!verifySlackSignature(req)) {
-      console.warn('Slack signature verification failed');
-      return res.status(401).json({ error: 'Invalid signature' });
-    }
-
-    const event = req.body.event;
-    if (!event) return res.sendStatus(200);
-
-    // Ignore bot messages
-    if (event.bot_id || event.subtype === 'bot_message') {
-      return res.sendStatus(200);
-    }
-
-    // Only process threaded replies in our support channel
-    if (event.thread_ts && event.channel) {
-      const conversation = await SupportConversation.findOne({
-        slackThreadTs: event.thread_ts,
-        slackChannel: event.channel
-      });
-
-      if (conversation) {
-        conversation.messages.push({
-          from: 'agent',
-          text: event.text,
-          createdAt: new Date()
-        });
-        // Mark as agent handover so the AI bot will not respond
-        conversation.agentHandover = true;
-        await conversation.save();
-        console.log(`💬 Agent reply saved for conversation ${conversation._id} (agentHandover=true)`);
-      }
-    }
-
-    res.sendStatus(200);
-  } catch (error) {
-    console.error('Slack events error:', error);
-    res.sendStatus(200); // Always 200 so Slack doesn't retry
-  }
-});
-
-// PATCH /api/support/conversation/:id/mute — manually mark conversation as agent handover
-app.patch('/api/support/conversation/:id/mute', async (req, res) => {
-  try {
-    const conversation = await SupportConversation.findById(req.params.id);
-    if (!conversation) {
-      return res.status(404).json({ error: 'Conversation not found' });
-    }
-    conversation.agentHandover = true;
-    await conversation.save();
-    res.json({ success: true, agentHandover: true });
-  } catch (error) {
-    console.error('Mute conversation error:', error);
-    res.status(500).json({ error: 'Failed to mute conversation' });
-  }
-});
+// Inline support routes removed, migrated to routes/support.js
 
 // Connect to MongoDB
 const { connectToMongoDB } = require('./utils/database');
@@ -336,6 +135,7 @@ app.use('/api/affiliates', affiliateRoutes);
 app.use('/api/rounds', roundRoutes);
 app.use('/api/casino', casinoRoutes);
 app.use('/api/user', userRoutes);
+app.use('/api/support', supportRoutes);
 
 // Serve static files for admin and profile pages
 app.use('/admin', express.static('public/admin'));
