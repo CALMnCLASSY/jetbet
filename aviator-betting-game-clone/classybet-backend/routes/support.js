@@ -22,7 +22,7 @@ Here is the key context you must use to answer queries:
 
 1. DEPOSITS:
 - Supported currencies & minimums: KES 350, NGN 6,500, GHS 600, ZAR 125, USD 3.
-- Processed via Flutterwave or M-Pesa.
+- Processed via mobile money, card, or crypto.
 - If a deposit fails or doesn't reflect: Reassure the user and request their Transaction Reference, Receipt Number, or payment phone number so we can trace it.
 - If they continue to complain or insist, inform them that a supervisor is manually investigating the payment gateway logs.
 
@@ -89,9 +89,9 @@ function findKeywordResponse(message, conversationHistory) {
   // 2. Deposit logic
   if (currentTopic === 'deposit') {
     if (depositCount === 1) {
-      return "To make a deposit, please navigate to the Deposit tab on the platform. We support multiple home currency options: Minimum deposit is KES 350, NGN 6,500, GHS 600, ZAR 125, or USD 3. Follow the prompts to complete payment securely using M-Pesa or Flutterwave.";
+      return "To make a deposit, please navigate to the Deposit tab on the platform. We support multiple home currency options: Minimum deposit is KES 350, NGN 6,500, GHS 600, ZAR 125, or USD 3. Follow the prompts to complete payment securely using mobile money, card, or crypto.";
     } else if (depositCount === 2) {
-      return "If your payment was processed but hasn't updated on your account, please reply with your Transaction Reference, Receipt Number, or M-Pesa phone number. We will use this information to trace the transaction immediately.";
+      return "If your payment was processed but hasn't updated on your account, please reply with your Transaction Reference, Receipt Number, or payment phone number. We will use this information to trace the transaction immediately.";
     } else {
       return "I have escalated your deposit issue to our billing supervisors. They are manually investigating the payment gateway logs right now, and we will update you here as soon as it is resolved.";
     }

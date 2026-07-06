@@ -51,12 +51,20 @@ async function postSlackThread(channel, text, threadTs = null) {
     const data = await res.json();
     if (!data.ok) {
       console.error('Slack API error:', data.error);
+      if (process.env.SLACK_WEBHOOK_SUPPORT) {
+        console.warn('Slack API error received. Falling back to webhook support...');
+        await sendSlackMessage(process.env.SLACK_WEBHOOK_SUPPORT, text);
+      }
       return null;
     }
 
     return data.ts; // message timestamp (used as thread_ts for replies)
   } catch (error) {
     console.error('Error posting to Slack API:', error.message);
+    if (process.env.SLACK_WEBHOOK_SUPPORT) {
+      console.warn('Slack API request crashed. Falling back to webhook support...');
+      await sendSlackMessage(process.env.SLACK_WEBHOOK_SUPPORT, text);
+    }
     return null;
   }
 }
