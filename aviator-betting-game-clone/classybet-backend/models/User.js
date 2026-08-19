@@ -56,7 +56,8 @@ const userSchema = new mongoose.Schema({
     type: String,
     required: true,
     default: 'KES',
-    enum: ['KES', 'NGN', 'GHS', 'ZAR', 'USD', 'GBP', 'EUR']
+    trim: true,
+    uppercase: true
   },
   isDemo: {
     type: Boolean,
