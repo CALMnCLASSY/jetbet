@@ -32,22 +32,27 @@ const FALLBACK_RATES = {
     sll: 22500.0,
     xof: 605.0,
     xaf: 605.0,
+    cdf: 2800.0,
     dzd: 135.0,
     tnd: 3.1,
     lyd: 4.85,
     bwp: 13.5,
     nad: 18.5,
+    lsl: 18.5,
     mzn: 64.0,
     aoa: 900.0,
     mur: 46.5,
+    scr: 14.2,
+    mga: 4600.0,
 
-    // Europe
+    // Europe & Central Asia
     gbp: 0.79,
     eur: 0.92,
     chf: 0.90,
     sek: 10.5,
     nok: 10.6,
     dkk: 6.9,
+    isk: 138.0,
     pln: 4.0,
     huf: 365.0,
     czk: 23.2,
@@ -55,7 +60,12 @@ const FALLBACK_RATES = {
     bgn: 1.8,
     rsd: 108.0,
     try: 33.0,
-    rub: 90.0,
+    rub: 92.5,
+    uzs: 12800.0,
+    kzt: 495.0,
+    azn: 1.7,
+    gel: 2.75,
+    amd: 388.0,
     uah: 41.0,
 
     // Asia & Pacific
@@ -63,7 +73,7 @@ const FALLBACK_RATES = {
     pkr: 278.0,
     bdt: 118.0,
     lkr: 300.0,
-    npr: 133.0,
+    npr: 134.0,
     php: 58.0,
     thb: 36.5,
     idr: 16200.0,
@@ -75,8 +85,11 @@ const FALLBACK_RATES = {
     vnd: 25400.0,
     khr: 4100.0,
     mmk: 2100.0,
+    mnt: 3450.0,
     aud: 1.52,
     nzd: 1.64,
+    fjd: 2.25,
+    pgk: 3.95,
 
     // Middle East
     aed: 3.67,
@@ -89,8 +102,9 @@ const FALLBACK_RATES = {
     lbp: 89500.0,
     ils: 3.72,
     iqd: 1310.0,
+    irr: 42000.0,
 
-    // Americas
+    // Americas & Caribbean
     usd: 1.0,
     cad: 1.37,
     brl: 5.4,
@@ -98,7 +112,15 @@ const FALLBACK_RATES = {
     cop: 4100.0,
     ars: 920.0,
     clp: 930.0,
-    pen: 3.75
+    pen: 3.75,
+    htg: 132.0,
+    jmd: 158.0,
+    ttd: 6.8,
+    dop: 60.0,
+    crc: 515.0,
+    uyu: 42.0,
+    pyg: 7800.0,
+    bob: 6.9
 };
 
 /**
