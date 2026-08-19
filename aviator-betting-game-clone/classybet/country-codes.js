@@ -1,5 +1,5 @@
 // Country codes for international phone number support with native currency mapping
-const countryCodes = [
+var countryCodes = window.countryCodes || [
     // Africa - East
     { name: "Kenya", code: "+254", flag: "🇰🇪", pattern: "[0-9]{9}", placeholder: "712345678", currency: "KES", currencySymbol: "KSh" },
     { name: "Uganda", code: "+256", flag: "🇺🇬", pattern: "[0-9]{9}", placeholder: "712345678", currency: "UGX", currencySymbol: "USh" },

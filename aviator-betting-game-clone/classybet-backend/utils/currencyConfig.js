@@ -859,12 +859,21 @@ const MAX_WITHDRAWAL = {
 };
 
 /**
- * Get currency for a country code
+ * Get currency for a country code (returns currency string)
  */
 function getCurrencyByCountryCode(countryCode) {
     if (!countryCode) return 'USD';
     const entry = COUNTRY_CURRENCY_MAP[countryCode.trim()];
     return entry ? entry.currency : 'USD';
+}
+
+/**
+ * Get currency and country object for a country code
+ */
+function getCurrencyForCountryCode(countryCode) {
+    if (!countryCode) return { currency: 'USD', country: 'United States' };
+    const entry = COUNTRY_CURRENCY_MAP[countryCode.trim()];
+    return entry ? { currency: entry.currency, country: entry.country } : { currency: 'USD', country: 'International' };
 }
 
 /**
@@ -1038,6 +1047,7 @@ module.exports = {
     MIN_WITHDRAWAL,
     MAX_WITHDRAWAL,
     getCurrencyByCountryCode,
+    getCurrencyForCountryCode,
     getCurrencySymbol,
     getCurrencyName,
     formatCurrency,
