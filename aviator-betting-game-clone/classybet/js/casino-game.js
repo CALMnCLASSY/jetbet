@@ -109,7 +109,7 @@ class CasinoGame {
             const currency = this.getUserCurrency();
             return window.getCurrencySymbol(currency);
         }
-        return 'KES';
+        return '$';
     }
 
     getUserCurrency() {
@@ -117,10 +117,10 @@ class CasinoGame {
             const userData = localStorage.getItem('userData');
             if (userData) {
                 const user = JSON.parse(userData);
-                return user.currency || 'KES';
+                return user.currency || 'USD';
             }
         } catch (e) {}
-        return 'KES';
+        return 'USD';
     }
 
     async placeBetOnGame(amount, description = 'Game Bet') {
@@ -280,8 +280,9 @@ class CasinoGame {
     }
 
     async placeBet(amount) {
-        if (amount < 10) {
-            alert('Minimum bet is KES 10');
+        const minBet = 1;
+        if (amount < minBet) {
+            alert(`Minimum bet is ${this.getCurrencySymbol()} ${minBet}`);
             return;
         }
 
@@ -341,8 +342,8 @@ class CasinoGame {
     }
 
     showWinAnimation(amount, multiplier) {
-        // Generic win animation - can be overridden
-        const message = `YOU WON! <br> <span style="font-size: 1.5em; color: #36cb12;">KES ${amount}</span> <br> (${multiplier}x)`;
+        // Generic win animation
+        const message = `YOU WON! <br> <span style="font-size: 1.5em; color: #36cb12;">${this.getCurrencySymbol()} ${amount}</span> <br> (${multiplier}x)`;
         this.showOverlay(message, 'win');
     }
 

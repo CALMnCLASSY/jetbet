@@ -83,7 +83,7 @@ class UltimateHotGame extends CasinoGame {
         const lines = parseInt(document.getElementById('linesCount').value) || 5;
         const total = betPerLine * lines;
         
-        document.getElementById('totalBet').value = `KES ${total}`;
+        document.getElementById('totalBet').value = `${this.getCurrencySymbol()} ${total}`;
     }
 
     getRandomSymbol() {
@@ -97,8 +97,8 @@ class UltimateHotGame extends CasinoGame {
         const lines = parseInt(document.getElementById('linesCount').value);
         const totalBet = betPerLine * lines;
 
-        if (totalBet < 10) {
-            alert('Minimum total bet is KES 10');
+        if (totalBet < 1) {
+            alert(`Minimum total bet is ${this.getCurrencySymbol()} 1`);
             return;
         }
 
@@ -261,7 +261,7 @@ class UltimateHotGame extends CasinoGame {
         const winDisplay = document.getElementById('winDisplay');
         const winAmountEl = document.getElementById('winAmount');
 
-        winAmountEl.textContent = `+KES ${winAmount.toFixed(2)}`;
+        winAmountEl.textContent = `+${this.getCurrencySymbol()} ${winAmount.toFixed(2)}`;
         winDisplay.classList.add('active');
 
         setTimeout(() => {
@@ -279,8 +279,8 @@ class UltimateHotGame extends CasinoGame {
         }
 
         document.getElementById('totalSpins').textContent = this.stats.totalSpins;
-        document.getElementById('totalWon').textContent = `KES ${this.stats.totalWon.toFixed(2)}`;
-        document.getElementById('biggestWin').textContent = `KES ${this.stats.biggestWin.toFixed(2)}`;
+        document.getElementById('totalWon').textContent = `${this.getCurrencySymbol()} ${this.stats.totalWon.toFixed(2)}`;
+        document.getElementById('biggestWin').textContent = `${this.getCurrencySymbol()} ${this.stats.biggestWin.toFixed(2)}`;
         
         const winRate = this.stats.totalSpins > 0 
             ? ((this.stats.wins / this.stats.totalSpins) * 100).toFixed(1)

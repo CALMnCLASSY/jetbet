@@ -139,14 +139,14 @@ class KenoGame extends CasinoGame {
         const betAmount = parseFloat(document.getElementById('betAmount').value) || 0;
         const selectedCount = this.selectedNumbers.size;
         
-        document.getElementById('displayBet').textContent = `KES ${betAmount}`;
+        document.getElementById('displayBet').textContent = `${this.getCurrencySymbol()} ${betAmount}`;
 
         if (selectedCount > 0 && this.payoutTable[selectedCount]) {
             const maxMultiplier = this.payoutTable[selectedCount][selectedCount] || 0;
             const potentialWin = betAmount * maxMultiplier;
-            document.getElementById('potentialWin').textContent = `KES ${potentialWin}`;
+            document.getElementById('potentialWin').textContent = `${this.getCurrencySymbol()} ${potentialWin.toFixed(2)}`;
         } else {
-            document.getElementById('potentialWin').textContent = 'KES 0';
+            document.getElementById('potentialWin').textContent = `${this.getCurrencySymbol()} 0`;
         }
     }
 
@@ -157,8 +157,8 @@ class KenoGame extends CasinoGame {
         }
 
         const betAmount = parseFloat(document.getElementById('betAmount').value);
-        if (betAmount < 10) {
-            alert('Minimum bet is KES 10');
+        if (betAmount < 1) {
+            alert(`Minimum bet is ${this.getCurrencySymbol()} 1`);
             return;
         }
 
@@ -273,7 +273,7 @@ class KenoGame extends CasinoGame {
         const message = `
             <h2>YOU WIN!</h2>
             <div style="font-size: 48px; color: #36cb12; margin: 20px 0;">
-                +KES ${winAmount.toFixed(2)}
+                +${this.getCurrencySymbol()} ${winAmount.toFixed(2)}
             </div>
             <p style="font-size: 24px;">
                 ${hits} out of ${selected} numbers matched!

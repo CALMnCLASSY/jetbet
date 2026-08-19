@@ -194,15 +194,15 @@ class AviatorGame {
 
     // Currency formatting method
     formatCurrency(amount, currency = null) {
-        const currencyCode = currency || (window.jetbetAPI && window.jetbetAPI.user ? window.jetbetAPI.user.currency : 'KES');
-        const symbol = (typeof window.getCurrencySymbol === 'function') ? window.getCurrencySymbol(currencyCode) : 'KES';
+        const currencyCode = currency || ((typeof window.getUserCurrency === 'function') ? window.getUserCurrency() : (window.jetbetAPI && window.jetbetAPI.user ? window.jetbetAPI.user.currency : 'USD'));
+        const symbol = (typeof window.getCurrencySymbol === 'function') ? window.getCurrencySymbol(currencyCode) : '$';
         const numAmount = parseFloat(amount) || 0;
         
         // Format with commas as thousand separators
         if (typeof numAmount.toLocaleString === 'function') {
             return `${symbol} ${numAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
         }
-        return `${symbol} ${numAmount.toFixed(2)}`; // Absolute fallback
+        return `${symbol} ${numAmount.toFixed(2)}`;
     }
 
     updateBalance() {
@@ -525,7 +525,10 @@ class AviatorGame {
         claimButton.addEventListener('click', () => {
             if (statusMessage) {
                 statusMessage.classList.remove('success', 'error');
-                statusMessage.textContent = 'Deposit KES 499 or more to unlock your KES 250 free bet bonus.';
+                const cur = (typeof window.getUserCurrency === 'function') ? window.getUserCurrency() : 'USD';
+                const limits = (typeof window.getDepositLimits === 'function') ? window.getDepositLimits(cur) : { min: 5 };
+                const format = (typeof window.formatCurrency === 'function') ? window.formatCurrency : ((a, c) => `${c} ${a}`);
+                statusMessage.textContent = `Deposit ${format(limits.min, cur)} or more to unlock your free bet bonus.`;
                 statusMessage.classList.add('pending');
             }
 
@@ -3509,7 +3512,7 @@ function updateUserDisplay(user) {
 
 function updateBalanceDisplay(balance) {
     // Get user currency for formatting
-    const currency = (typeof window.getUserCurrency === 'function') ? window.getUserCurrency() : 'KES';
+    const currency = (typeof window.getUserCurrency === 'function') ? window.getUserCurrency() : 'USD';
     
     // Robust formatting that handles commas regardless of helper availability
     let formattedBalance;
@@ -3527,8 +3530,6 @@ function updateBalanceDisplay(balance) {
     balanceIds.forEach(id => {
         const el = document.getElementById(id);
         if (el) {
-            // Some elements might have "KES " prefix hardcoded in HTML before the span, 
-            // but updateBalanceDisplay usually sets the full text including symbol.
             el.textContent = formattedBalance;
         }
     });
@@ -3611,8 +3612,12 @@ if (depositForm) {
         const instructionsSection = document.querySelector('#deposit-modal .deposit-instructions');
 
         // Validate amount
-        if (isNaN(amount) || amount < 100 || amount > 150000) {
-            showError('deposit-error', 'Amount must be between KES 100 and KES 150,000');
+        const cur = (typeof window.getUserCurrency === 'function') ? window.getUserCurrency() : 'USD';
+        const limits = (typeof window.getDepositLimits === 'function') ? window.getDepositLimits(cur) : { min: 3, max: 1200 };
+        const format = (typeof window.formatCurrency === 'function') ? window.formatCurrency : ((a, c) => `${c} ${a}`);
+
+        if (isNaN(amount) || amount < limits.min || amount > limits.max) {
+            showError('deposit-error', `Amount must be between ${format(limits.min, cur)} and ${format(limits.max, cur)}`);
             return;
         }
 

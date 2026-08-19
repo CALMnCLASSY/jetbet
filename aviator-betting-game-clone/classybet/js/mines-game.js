@@ -71,8 +71,8 @@ class MinesGame extends CasinoGame {
     async startGame() {
         const betAmount = parseFloat(document.getElementById('betAmount').value);
         
-        if (betAmount < 10) {
-            alert('Minimum bet is KES 10');
+        if (betAmount < 1) {
+            alert(`Minimum bet is ${this.getCurrencySymbol()} 1`);
             return;
         }
 
@@ -190,7 +190,7 @@ class MinesGame extends CasinoGame {
         document.getElementById('currentMultiplier').textContent = this.currentMultiplier.toFixed(2) + 'x';
         
         const potentialWin = this.currentBet * this.currentMultiplier;
-        document.getElementById('potentialWin').textContent = `KES ${potentialWin.toFixed(2)}`;
+        document.getElementById('potentialWin').textContent = `${this.getCurrencySymbol()} ${potentialWin.toFixed(2)}`;
 
         this.updateNextMultiplier();
     }
@@ -259,7 +259,7 @@ class MinesGame extends CasinoGame {
         const message = `
             <h2>CASHED OUT!</h2>
             <div style="font-size: 48px; color: #36cb12; margin: 20px 0;">
-                +KES ${winAmount.toFixed(2)}
+                +${this.getCurrencySymbol()} ${winAmount.toFixed(2)}
             </div>
             <p style="font-size: 24px;">
                 ${this.revealedTiles.length} gems found!
@@ -319,7 +319,7 @@ class MinesGame extends CasinoGame {
 
         document.getElementById('gemsFound').textContent = '0';
         document.getElementById('currentMultiplier').textContent = '1.00x';
-        document.getElementById('potentialWin').textContent = 'KES 0';
+        document.getElementById('potentialWin').textContent = `${this.getCurrencySymbol()} 0`;
         
         this.updateNextMultiplier();
     }

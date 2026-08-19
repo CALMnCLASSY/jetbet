@@ -88,7 +88,7 @@ class RouletteGame extends CasinoGame {
             total += amount;
         });
 
-        document.getElementById('totalBetDisplay').textContent = `KES ${total}`;
+        document.getElementById('totalBetDisplay').textContent = `${this.getCurrencySymbol()} ${total}`;
     }
 
     clearBets() {
@@ -275,7 +275,7 @@ class RouletteGame extends CasinoGame {
             message += `
                 <h3 style="color: #36cb12; font-size: 48px; margin: 20px 0;">YOU WIN!</h3>
                 <div style="font-size: 42px; color: #36cb12; margin: 15px 0;">
-                    +KES ${result.totalWin.toFixed(2)}
+                    +${this.getCurrencySymbol()} ${result.totalWin.toFixed(2)}
                 </div>
             `;
         } else {

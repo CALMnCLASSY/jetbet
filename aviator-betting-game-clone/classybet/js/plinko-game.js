@@ -102,8 +102,8 @@ class PlinkoGame extends CasinoGame {
         if (this.isDropping) return;
 
         const betAmount = parseFloat(document.getElementById('betAmount').value);
-        if (betAmount < 10) {
-            alert('Minimum bet is KES 10');
+        if (betAmount < 1) {
+            alert(`Minimum bet is ${this.getCurrencySymbol()} 1`);
             return;
         }
 
@@ -221,7 +221,7 @@ class PlinkoGame extends CasinoGame {
                     ${multiplier.toFixed(1)}x
                 </h2>
                 <div style="font-size: 36px; color: ${isWin ? '#36cb12' : '#fff'}; margin: 15px 0;">
-                    ${isWin ? '+' : ''}KES ${(winAmount - betAmount).toFixed(2)}
+                    ${isWin ? '+' : ''}${this.getCurrencySymbol()} ${(winAmount - betAmount).toFixed(2)}
                 </div>
                 <p style="font-size: 20px; opacity: 0.8;">
                     ${isWin ? 'Nice drop!' : 'Try again!'}
@@ -258,7 +258,7 @@ class PlinkoGame extends CasinoGame {
         this.stats.biggestWin = Math.max(this.stats.biggestWin, multiplier);
 
         document.getElementById('totalDrops').textContent = this.stats.totalDrops;
-        document.getElementById('totalWon').textContent = `KES ${this.stats.totalWon.toFixed(2)}`;
+        document.getElementById('totalWon').textContent = `${this.getCurrencySymbol()} ${this.stats.totalWon.toFixed(2)}`;
         document.getElementById('biggestWin').textContent = this.stats.biggestWin.toFixed(1) + 'x';
 
         // Add to recent drops

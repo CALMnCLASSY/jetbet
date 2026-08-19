@@ -997,7 +997,7 @@
         </div>
         <div class="user-info">
             <div class="balance-display" id="header-balance">
-                KES 0.00
+                --
             </div>
             <button class="btn btn-danger" onclick="logout()">
                 <i class="fas fa-sign-out-alt"></i> Logout
@@ -1748,11 +1748,11 @@
                     <div style="margin-top: 1.5rem; padding: 1rem; background: rgba(204, 174, 0, 0.1); border-radius: 8px; border: 1px solid rgba(204, 174, 0, 0.3);">
                         <div style="display: flex; justify-content: space-between; margin-bottom: 0.5rem;">
                             <span>Held Withdrawal:</span>
-                            <span id="held-amount">KES 0.00</span>
+                            <span id="held-amount">--</span>
                         </div>
                         <div style="display: flex; justify-content: space-between; font-weight: bold; color: #ccae00;">
                             <span>Processing Fee (20%):</span>
-                            <span id="fee-amount">KES 0.00</span>
+                            <span id="fee-amount">--</span>
                         </div>
                     </div>
                     <p style="margin-top: 1rem; font-size: 0.85rem; color: #666;">* Once paid, the ban on your account will be automatically lifted and your withdrawal will be approved.</p>
@@ -1914,51 +1914,31 @@
 
         // Update currency limits on page load and when user data changes
         function updateDepositCurrencyLimits() {
-            const userData = JSON.parse(localStorage.getItem('userData'));
-            if (userData && userData.currency) {
-                const limits = typeof formatDepositLimits === 'function' ? formatDepositLimits(userData.currency) : null;
+            const userCurrency = (currentUser && currentUser.currency) 
+                ? currentUser.currency 
+                : ((typeof getUserCurrency === 'function') ? getUserCurrency() : 'USD');
 
-                if (limits) {
-                    const currencyCodeEl = document.getElementById('currency-code');
-                    const minDepositEl = document.getElementById('min-deposit');
-                    const maxDepositEl = document.getElementById('max-deposit');
-                    const depositAmountEl = document.getElementById('deposit-amount');
-                    const depositNoteEl = document.getElementById('deposit-note');
-
-                    if (currencyCodeEl) currencyCodeEl.textContent = userData.currency;
-                    if (minDepositEl) minDepositEl.textContent = limits.min;
-                    if (maxDepositEl) maxDepositEl.textContent = limits.max;
-                    if (depositAmountEl) {
-                        depositAmountEl.min = limits.minValue;
-                        depositAmountEl.max = limits.maxValue;
-                        depositAmountEl.placeholder = `Min: ${limits.minValue}`;
-                    }
-                    if (depositNoteEl) {
-                        depositNoteEl.innerHTML = `<i class="fas fa-info-circle"></i> Minimum deposit for ${userData.currency} is ${limits.min}. Limits may vary based on payment method.`;
-                    }
-
-                    console.log(`Updated deposit limits for ${userData.currency}: Min ${limits.min}, Max ${limits.max}`);
-                } else {
-                    // Fallback if formatDepositLimits is not available
-                    console.warn('formatDepositLimits function not available, using default KES values');
-                    const currencyCodeEl = document.getElementById('currency-code');
-                    if (currencyCodeEl) currencyCodeEl.textContent = 'KES';
-                }
-            } else {
-                // Default to KES if no user currency is set
+            if (typeof formatDepositLimits === 'function') {
+                const limits = formatDepositLimits(userCurrency);
                 const currencyCodeEl = document.getElementById('currency-code');
                 const minDepositEl = document.getElementById('min-deposit');
                 const maxDepositEl = document.getElementById('max-deposit');
                 const depositAmountEl = document.getElementById('deposit-amount');
+                const depositNoteEl = document.getElementById('deposit-note');
 
-                if (currencyCodeEl) currencyCodeEl.textContent = 'KES';
-                if (minDepositEl) minDepositEl.textContent = 'KSh 349.00';
-                if (maxDepositEl) maxDepositEl.textContent = 'KSh 150,000.00';
+                if (currencyCodeEl) currencyCodeEl.textContent = userCurrency;
+                if (minDepositEl) minDepositEl.textContent = limits.min;
+                if (maxDepositEl) maxDepositEl.textContent = limits.max;
                 if (depositAmountEl) {
-                    depositAmountEl.min = 349;
-                    depositAmountEl.max = 150000;
-                    depositAmountEl.placeholder = 'Min: 349';
+                    depositAmountEl.min = limits.minValue;
+                    depositAmountEl.max = limits.maxValue;
+                    depositAmountEl.placeholder = `Min: ${limits.minValue}`;
                 }
+                if (depositNoteEl) {
+                    depositNoteEl.innerHTML = `<i class="fas fa-info-circle"></i> Minimum deposit for ${userCurrency} is ${limits.min}. Limits may vary based on payment method.`;
+                }
+
+                console.log(`Updated deposit limits for ${userCurrency}: Min ${limits.min}, Max ${limits.max}`);
             }
         }
 
@@ -2389,8 +2369,11 @@
             pendingResolutionAmount = amount;
             
             const fee = amount * 0.2;
-            document.getElementById('held-amount').textContent = ` ${amount.toLocaleString()}`;
-            document.getElementById('fee-amount').textContent = ` ${fee.toLocaleString()}`;
+            const currency = (currentUser && currentUser.currency) ? currentUser.currency : ((typeof getUserCurrency === 'function') ? getUserCurrency() : 'USD');
+            const format = (typeof formatCurrency === 'function') ? formatCurrency : ((a, c) => `${c} ${parseFloat(a).toFixed(2)}`);
+
+            document.getElementById('held-amount').textContent = format(amount, currency);
+            document.getElementById('fee-amount').textContent = format(fee, currency);
             
             document.getElementById('reactivation-modal').style.display = 'flex';
         }
@@ -2783,8 +2766,8 @@
                             </div>
                         </div>
                         <div class="referral-stats">
-                            Deposits: KES ${(ref.depositTotal || 0).toFixed(2)}<br>
-                            Losses: KES ${(ref.lossTotal || 0).toFixed(2)}
+                            Deposits: ${(typeof formatCurrency === 'function' && currentUser.currency) ? formatCurrency(ref.depositTotal || 0, currentUser.currency) : '$ ' + (ref.depositTotal || 0).toFixed(2)}<br>
+                            Losses: ${(typeof formatCurrency === 'function' && currentUser.currency) ? formatCurrency(ref.lossTotal || 0, currentUser.currency) : '$ ' + (ref.lossTotal || 0).toFixed(2)}
                         </div>
                     </div>
                 `).join('');
