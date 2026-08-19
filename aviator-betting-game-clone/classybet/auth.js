@@ -45,12 +45,24 @@ class AuthManager {
     // Load country codes into select
     loadCountryCodes() {
         const countrySelect = document.getElementById('countryCode');
-        if (!countrySelect || !window.countryCodes) return;
+        if (!countrySelect) return;
+
+        const codesList = window.countryCodes || (typeof countryCodes !== 'undefined' ? countryCodes : null);
+        if (!codesList || !Array.isArray(codesList) || codesList.length === 0) {
+            console.warn('Country codes not loaded yet, scheduling retry...');
+            setTimeout(() => this.loadCountryCodes(), 150);
+            return;
+        }
+
+        // Avoid re-populating if already populated with all options
+        if (countrySelect.options.length >= codesList.length) {
+            return;
+        }
 
         // Clear existing options
         countrySelect.innerHTML = '';
 
-        const sortedCountries = [...window.countryCodes].sort((a, b) => a.name.localeCompare(b.name));
+        const sortedCountries = [...codesList].sort((a, b) => a.name.localeCompare(b.name));
         const kenyaIndex = sortedCountries.findIndex(country => country.name === 'Kenya');
         if (kenyaIndex > 0) {
             const [kenya] = sortedCountries.splice(kenyaIndex, 1);
@@ -62,8 +74,8 @@ class AuthManager {
             const option = document.createElement('option');
             option.value = country.code;
             option.textContent = `${country.flag} ${country.name} (${country.code})`;
-            option.setAttribute('data-pattern', country.pattern);
-            option.setAttribute('data-placeholder', country.placeholder);
+            option.setAttribute('data-pattern', country.pattern || '[0-9]{6,15}');
+            option.setAttribute('data-placeholder', country.placeholder || '');
             countrySelect.appendChild(option);
         });
 
@@ -73,14 +85,14 @@ class AuthManager {
         }
 
         // Update phone input when country changes
-        countrySelect.addEventListener('change', () => {
+        countrySelect.onchange = () => {
             const selectedOption = countrySelect.selectedOptions[0];
             const phoneInput = document.getElementById('phone');
             if (selectedOption && phoneInput) {
                 phoneInput.placeholder = selectedOption.getAttribute('data-placeholder');
                 phoneInput.pattern = selectedOption.getAttribute('data-pattern');
             }
-        });
+        };
 
         // Set default placeholder
         if (countrySelect.selectedOptions[0]) {
@@ -776,6 +788,10 @@ window.switchAuthTab = function (tabType) {
     if (tabContent) {
         tabContent.classList.add('active');
         console.log('Tab content activated:', tabContent.id);
+
+        if (tabType === 'register' && window.authManager) {
+            window.authManager.loadCountryCodes();
+        }
     } else {
         console.error('Tab content not found for ID:', `${tabType}Tab`);
     }

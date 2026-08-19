@@ -168,6 +168,14 @@ function getCountryDetailsByCode(code) {
     return countryCodes.find(c => c.code === code) || null;
 }
 
+// Export for browser environment
+if (typeof window !== 'undefined') {
+    window.countryCodes = countryCodes;
+    window.getCurrencyByCountryCode = getCurrencyByCountryCode;
+    window.getCurrencySymbolByCountryCode = getCurrencySymbolByCountryCode;
+    window.getCountryDetailsByCode = getCountryDetailsByCode;
+}
+
 // Export for Node.js if in backend environment
 if (typeof module !== 'undefined' && module.exports) {
     module.exports = {
