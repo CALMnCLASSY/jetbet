@@ -4732,6 +4732,7 @@ input[type=number] {
         font-size: 14px;
     }
 }
+
 /* Round Info Modal - Provably Fair Styling */
 #round-info-modal {
     position: fixed;
@@ -5072,18 +5073,39 @@ input[type=number] {
 }
 
 @keyframes pulse-green {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.5; }
+
+    0%,
+    100% {
+        opacity: 1;
+    }
+
+    50% {
+        opacity: 0.5;
+    }
 }
 
 @keyframes pulse-orange {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.5; }
+
+    0%,
+    100% {
+        opacity: 1;
+    }
+
+    50% {
+        opacity: 0.5;
+    }
 }
 
 @keyframes pulse-red {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.5; }
+
+    0%,
+    100% {
+        opacity: 1;
+    }
+
+    50% {
+        opacity: 0.5;
+    }
 }
 
 /* Auto-hide for connected status */

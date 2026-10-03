@@ -8,7 +8,7 @@
 const transporter = nodemailer.createTransport({
     service: 'gmail',
     auth: {
-        user: process.env.EMAIL_USER, // jetbetcasino@gmail.com
+        user: process.env.EMAIL_USER, // casinojetbet@gmail.com
         password: process.env.EMAIL_PASSWORD // Google App Password
     }
 });
