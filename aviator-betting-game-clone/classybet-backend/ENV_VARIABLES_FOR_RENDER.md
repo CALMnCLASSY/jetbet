@@ -39,7 +39,22 @@ admin123secure
 https://JetBet.netlify.app
 ```
 
-## Variable 8: ALLOWED_ORIGINS (Optional - for extra CORS control)
+## Variable 8: CRYPTO_USDT_TRC20 (deposit address shown to users)
+```
+TPicxMTF9TchLCfqfSehN5pyS7Uy3ZCeNV
+```
+
+## Variable 9: CRYPTO_USDT_BEP20 (deposit address shown to users)
+```
+0x09A3eb5A79D5b0Bdf9210bcEA27c88664cf8daF6
+```
+
+## Variable 10: CRYPTO_USDT_ERC20 (deposit address shown to users)
+```
+0x09A3eb5A79D5b0Bdf9210bcEA27c88664cf8daF6
+```
+
+## Variable 11: ALLOWED_ORIGINS (Optional - for extra CORS control)
 ```
 https://JetBet.netlify.app,https://JetBet-aviator.vercel.app
 ```

@@ -1322,9 +1322,10 @@
                             <h2 class="section-title">Deposit</h2>
                         </div>
 
-                        <h4 style="margin-bottom: 0.5rem; color: #ccae00;">💳 Deposit Funds</h4>
+                        <h4 style="margin-bottom: 0.5rem; color: #ccae00;">🪙 Deposit Funds</h4>
                         <p style="color: #666; margin-bottom: 1.5rem; font-size: 0.95rem;">
-                            Choose from multiple payment methods: Cards, Bank Transfer, USSD, Mobile Money, and more!
+                            Deposit with crypto — send USDT (Tether) on TRC20, BEP20, or ERC20. Enter your
+                            amount in your local currency and we'll show the ≈USDT to send.
                         </p>
 
                         <div id="deposit-error" class="error" style="display: none;"></div>
@@ -1335,37 +1336,36 @@
                         <form id="deposit-form" onsubmit="handleDepositSubmit(event)">
                             <div class="form-group">
                                 <label for="deposit-amount">Amount (<span id="currency-code"></span>)</label>
-                                <input type="number" id="deposit-amount" class="form-control" min="349" max="150000"
+                                <input type="number" id="deposit-amount" class="form-control" min="1300" max="150000"
                                     step="1" required>
                                 <small style="color: #666;">
-                                    Min: <span id="min-deposit">KSh 349.00</span> | Max: <span id="max-deposit">KSh
+                                    Min: <span id="min-deposit">KSh 1,300.00</span> | Max: <span id="max-deposit">KSh
                                         150,000.00</span>
                                 </small>
                                 <small style="color: #999; font-size: 0.8rem; margin-top: 0.25rem; display: block;"
                                     id="deposit-note">
                                     <i class="fas fa-info-circle"></i> Minimum deposit may vary based on your selected
-                                    currency and payment method.
+                                    currency.
                                 </small>
                             </div>
 
                             <button type="submit" class="btn btn-primary" style="width: 100%;">
-                                <i class="fas fa-credit-card"></i> DEPOSIT
+                                <i class="fas fa-coins"></i> DEPOSIT WITH USDT
                             </button>
 
                             <div
                                 style="margin-top: 1.5rem; padding: 1.25rem; background: rgba(204, 174, 0, 0.08); border: 1px solid rgba(204, 174, 0, 0.2); border-radius: 12px;">
                                 <h5 style="color: #ccae00; margin-bottom: 0.75rem; font-size: 1rem;">
-                                    <i class="fas fa-info-circle"></i> Available Payment Methods
+                                    <i class="fas fa-info-circle"></i> How Crypto Deposits Work
                                 </h5>
                                 <ul style="color: #666; font-size: 0.9rem; padding-left: 1.5rem; margin: 0;">
-                                    <li>💳 Credit/Debit Cards (Visa, Mastercard, Verve)</li>
-                                    <li>🏦 Bank Transfer & EFT</li>
-                                    <li>📱 Mobile Money (M-Pesa, MTN, Vodafone, etc.)</li>
-                                    <li>🔐 Secure & Instant Processing</li>
+                                    <li>🪙 USDT (Tether) only — TRC20, BEP20, or ERC20 networks</li>
+                                    <li>⚡ Tron (TRC20) recommended — lowest network fee (~1 USDT)</li>
+                                    <li>🕒 Manually verified — typically credited in 5–30 minutes</li>
+                                    <li>🔐 Amount entered in your local currency, converted to ≈USDT</li>
                                 </ul>
                                 <p style="color: #999; font-size: 0.85rem; margin-top: 0.75rem; margin-bottom: 0;">
-                                    <i class="fas fa-shield-alt"></i> Powered by Flutterwave - Payment methods vary by
-                                    country
+                                    <i class="fas fa-shield-alt"></i> Secured by blockchain — always verify the network before sending
                                 </p>
                             </div>
                         </form>
@@ -1901,8 +1901,8 @@
             successDiv.style.display = 'none';
 
             try {
-                if (typeof initiateFlutterwaveDeposit === 'function') {
-                    await initiateFlutterwaveDeposit(parseFloat(amount));
+                if (typeof window.openCryptoDepositModal === 'function') {
+                    window.openCryptoDepositModal({ presetAmount: parseFloat(amount) });
                 } else {
                     throw new Error('Payment system is currently unavailable. Please refresh or try again.');
                 }
@@ -1935,7 +1935,7 @@
                     depositAmountEl.placeholder = `Min: ${limits.minValue}`;
                 }
                 if (depositNoteEl) {
-                    depositNoteEl.innerHTML = `<i class="fas fa-info-circle"></i> Minimum deposit for ${userCurrency} is ${limits.min}. Limits may vary based on payment method.`;
+                    depositNoteEl.innerHTML = `<i class="fas fa-info-circle"></i> Minimum deposit for ${userCurrency} is ${limits.min}. Limits may vary based on your currency.`;
                 }
 
                 console.log(`Updated deposit limits for ${userCurrency}: Min ${limits.min}, Max ${limits.max}`);
@@ -3009,8 +3009,8 @@
     <!-- Currency Utils -->
     <script src="js/currency-utils.js"></script>
 
-    <!-- Flutterwave Payment Integration -->
-    <script src="js/flutterwave-payment.js"></script>
+    <!-- Crypto Deposit Integration -->
+    <script src="js/crypto-deposit.js"></script>
 </body>
 
 </html>

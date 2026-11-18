@@ -21,10 +21,15 @@ You assist users with account, game, deposit, and withdrawal inquiries.
 Here is the key context you must use to answer queries:
 
 1. DEPOSITS:
-- Supported currencies & minimums: KES 350, NGN 6,500, GHS 600, ZAR 125, USD 3.
-- Processed via mobile money, card, or crypto.
-- If a deposit fails or doesn't reflect: Reassure the user and request their Transaction Reference, Receipt Number, or payment phone number so we can trace it.
-- If they continue to complain or insist, inform them that a supervisor is manually investigating the payment gateway logs.
+- Deposits are crypto-only: USDT (Tether) on Tron (TRC20), BNB Smart Chain (BEP20), or Ethereum (ERC20).
+- Mobile money and card deposits are no longer supported.
+- The user enters their deposit amount in their local currency and the site shows the approximate USDT equivalent to send. Minimums: KES 1,300, NGN 16,100, GHS 155, ZAR 185, USD 10.
+- Flow: user opens Deposit, picks a network (TRC20 recommended for lowest fees), sends USDT to the displayed wallet address, optionally pastes their transaction hash, and clicks "I've sent funds". Deposits are verified manually and typically credited within 5-30 minutes.
+- If a deposit doesn't reflect: ask for the transaction hash (txid) AND the network used so an admin can trace it on the blockchain explorer.
+- We accept USDT only — not BTC, ETH, or other coins. Users holding other coins must swap to USDT first (e.g. on Binance, Bybit, or OKX).
+- Users can buy USDT with local currency or mobile money on Binance P2P, Bybit, OKX, or Yellow Card.
+- Warn users to always send on the exact network selected — sending on the wrong network can permanently lose funds.
+- If they continue to complain or insist, inform them that a supervisor is manually verifying the transaction on-chain.
 
 2. WITHDRAWALS:
 - Standard minimums: KES 500, NGN 10,000, GHS 900, ZAR 200, USD 5.
@@ -52,7 +57,7 @@ function findKeywordResponse(message, conversationHistory) {
   const lowercaseMsg = message.toLowerCase();
   const userMessages = conversationHistory.filter(m => m.from === 'user');
 
-  const depositKeywords = ['deposit', 'pay', 'fund', 'recharge', 'dep', 'load', 'sent money'];
+  const depositKeywords = ['deposit', 'pay', 'fund', 'recharge', 'dep', 'load', 'sent money', 'usdt', 'crypto', 'tether'];
   const withdrawalKeywords = ['withdraw', 'withdrawal', 'cashout', 'cash out', 'payout', 'pay out', 'withdrew'];
   const holdOrSuspendedKeywords = ['hold', 'restricted', 'suspended', 'fee', 'locked'];
 
@@ -86,14 +91,59 @@ function findKeywordResponse(message, conversationHistory) {
     return "Your withdrawal is currently locked/restricted due to standard compliance audits (irregular betting patterns or AML verification checks). To resolve this, please go to **Profile > Transactions**, click on your pending withdrawal, and select **Resolve Issue** / **Activate Now** to pay the required **20% processing/activation fee** via Flutterwave. Note that this fee cannot be deducted from your account balance as the funds are locked in an escrow ledger that cannot be modified before compliance clearance.";
   }
 
-  // 2. Deposit logic
+  // 2. Crypto deposit specifics — checked BEFORE the generic deposit replies.
+  //    Order matters: most specific topics first. "Not credited" checks are
+  //    guarded so withdrawal complaints don't hit them.
+  const mentionsWithdraw = withdrawalKeywords.some(kw => lowercaseMsg.includes(kw));
+
+  if (['wrong network', 'wrong address', 'wrong chain', 'wrong wallet', 'sent to wrong', 'different network', 'other network'].some(kw => lowercaseMsg.includes(kw))) {
+    return "Transfers sent on the wrong network or to the wrong address are usually irreversible and cannot be recovered. If you believe this happened, please provide your transaction hash (txid), the network you actually used, and the network shown on the deposit page so our team can check whether anything can be done. Always double-check the network before sending.";
+  }
+
+  if (['txid', 'transaction hash', 'tx hash', 'hash'].some(kw => lowercaseMsg.includes(kw))) {
+    return "A transaction hash (txid) is the unique ID your wallet or exchange assigns to your USDT transfer after you send it. You can find it in your wallet's transaction history or on the exchange's withdrawal record. Paste it into the deposit modal (optional) or send it here with the network you used so we can verify your deposit faster.";
+  }
+
+  if (['which network', 'best network', 'what network', 'choose network', 'trc20', 'bep20', 'erc20', 'tron', 'bsc', 'network fee', 'gas fee'].some(kw => lowercaseMsg.includes(kw))) {
+    return "We accept USDT on three networks: **Tron (TRC20)** — recommended, lowest fee (~1 USDT); **BNB Smart Chain (BEP20)** — low fee (~0.3 USDT); and **Ethereum (ERC20)** — higher fees (~2-10 USDT). Select the same network on our deposit page and in your wallet. Most users choose TRC20.";
+  }
+
+  if (['bitcoin', 'btc', 'bnb', 'solana', 'doge', 'litecoin', 'xrp', 'ripple', 'cardano', 'shiba', 'usdc', 'busd', 'other coin', 'different coin', 'another coin', 'other crypto'].some(kw => lowercaseMsg.includes(kw))) {
+    return "We accept **USDT (Tether) only** — not BTC, ETH, or other coins. If you hold a different cryptocurrency, please swap it to USDT on an exchange (Binance, Bybit, OKX) first, then deposit the USDT on TRC20, BEP20, or ERC20.";
+  }
+
+  if (['buy usdt', 'buy crypto', 'get usdt', 'purchase usdt', 'where to buy', 'how to buy', 'acquire usdt'].some(kw => lowercaseMsg.includes(kw))) {
+    return "You can buy USDT with your local currency or mobile money on **Binance P2P**, **Bybit**, **OKX**, or **Yellow Card**. Once you have USDT, open the Deposit section, enter your amount, pick a network (TRC20 recommended), and send to the address shown.";
+  }
+
+  if (['wallet address', 'deposit address', 'address to send', 'where do i send', 'where to send', 'qr code', 'qrcode', 'scan the'].some(kw => lowercaseMsg.includes(kw))) {
+    return "The deposit address and QR code are shown inside the deposit modal: open **Deposit**, enter your amount, and select a network — the USDT address and a scannable QR appear there. Always copy the address directly from the site and verify the first and last characters before sending.";
+  }
+
+  if (['minimum deposit', 'min deposit', 'maximum deposit', 'max deposit', 'deposit limit', 'deposit cap', 'smallest deposit'].some(kw => lowercaseMsg.includes(kw))) {
+    return "Minimum deposits are KES 1,300, NGN 16,100, GHS 155, ZAR 185, or USD 10 equivalent. You enter the amount in your local currency and the deposit page shows the ≈USDT amount to send. Maximum limits depend on your currency and are displayed under the amount field.";
+  }
+
+  if (!mentionsWithdraw && ['not showing', 'not credited', 'not reflected', "hasn't arrived", 'has not arrived', 'did not arrive', "didn't arrive", 'missing deposit', 'not received', 'no balance', 'balance not'].some(kw => lowercaseMsg.includes(kw))) {
+    return "Crypto deposits are verified manually and normally credit within 5-30 minutes. If yours has taken longer, please send us your transaction hash (txid) and the network used (TRC20, BEP20, or ERC20) so we can trace it on the blockchain immediately.";
+  }
+
+  if (!mentionsWithdraw && ['i sent', 'i have sent', 'i just sent', 'sent the usdt', 'sent usdt', 'i deposited', 'i have deposited', 'i paid', 'payment done', 'done the transfer', 'made the deposit', 'sent the money'].some(kw => lowercaseMsg.includes(kw))) {
+    return "Thanks! Your deposit is **pending verification** — our team confirms USDT transfers manually, usually within 5-30 minutes. If it takes longer, send us your transaction hash (txid) and the network you used so we can trace it faster.";
+  }
+
+  if (['crypto', 'usdt', 'tether', 'blockchain'].some(kw => lowercaseMsg.includes(kw))) {
+    return "Deposits are USDT-only (Tether) on TRC20, BEP20, or ERC20 — mobile money and cards are no longer supported. Open **Deposit**, enter the amount in your local currency, pick a network (TRC20 has the lowest fees), send USDT to the address shown, and optionally paste your txid. We credit deposits after manual verification, typically within 5-30 minutes.";
+  }
+
+  // 3. Deposit logic
   if (currentTopic === 'deposit') {
     if (depositCount === 1) {
-      return "To make a deposit, please navigate to the Deposit tab on the platform. We support multiple home currency options: Minimum deposit is KES 350, NGN 6,500, GHS 600, ZAR 125, or USD 3. Follow the prompts to complete payment securely using mobile money, card, or crypto.";
+      return "To make a deposit, open the Deposit section, enter your amount in your local currency, choose a USDT network (TRC20 recommended for the lowest fees), and send USDT to the address shown. Deposits are crypto-only — mobile money and card deposits are no longer supported. Minimum deposit is KES 1,300, NGN 16,100, GHS 155, ZAR 185, or USD 10. Deposits are verified manually and typically credited within 5-30 minutes.";
     } else if (depositCount === 2) {
-      return "If your payment was processed but hasn't updated on your account, please reply with your Transaction Reference, Receipt Number, or payment phone number. We will use this information to trace the transaction immediately.";
+      return "If you have sent USDT but your balance hasn't updated, please reply with your transaction hash (txid) and the network you used (TRC20, BEP20, or ERC20) so we can trace it on the blockchain immediately.";
     } else {
-      return "I have escalated your deposit issue to our billing supervisors. They are manually investigating the payment gateway logs right now, and we will update you here as soon as it is resolved.";
+      return "I have escalated your deposit issue to our billing supervisors. They are manually verifying the transaction on-chain right now, and we will update you here as soon as it is resolved.";
     }
   }
 

@@ -7,10 +7,41 @@ const { authenticateToken } = require('../middleware/auth');
 const { sendTelegramNotification } = require('../utils/telegram');
 const { sendSlackMessage } = require('../utils/slack');
 const { recordAffiliateDeposit } = require('../utils/affiliate');
-const { validateDepositAmount, validateWithdrawalAmount, formatCurrency, convertToFlutterwaveCurrency } = require('../utils/currencyConfig');
+const { validateDepositAmount, validateWithdrawalAmount, formatCurrency, convertToFlutterwaveCurrency, getDepositLimits } = require('../utils/currencyConfig');
 const ExchangeRateService = require('../services/ExchangeRateService');
 
 const router = express.Router();
+
+// USDT receiving networks for crypto deposits (addresses from env with fallback defaults)
+const CRYPTO_NETWORKS = [
+  {
+    id: 'trc20',
+    label: 'Tron (TRC20)',
+    token: 'USDT',
+    address: (process.env.CRYPTO_USDT_TRC20 || 'TPicxMTF9TchLCfqfSehN5pyS7Uy3ZCeNV').trim(),
+    explorer: 'https://tronscan.org/#/transaction/',
+    feeHint: '~1 USDT',
+    recommended: true
+  },
+  {
+    id: 'bep20',
+    label: 'BNB Smart Chain (BEP20)',
+    token: 'USDT',
+    address: (process.env.CRYPTO_USDT_BEP20 || '0x09A3eb5A79D5b0Bdf9210bcEA27c88664cf8daF6').trim(),
+    explorer: 'https://bscscan.com/tx/',
+    feeHint: '~0.3 USDT',
+    recommended: false
+  },
+  {
+    id: 'erc20',
+    label: 'Ethereum (ERC20)',
+    token: 'USDT',
+    address: (process.env.CRYPTO_USDT_ERC20 || '0x09A3eb5A79D5b0Bdf9210bcEA27c88664cf8daF6').trim(),
+    explorer: 'https://etherscan.io/tx/',
+    feeHint: '~2-10 USDT',
+    recommended: false
+  }
+];
 
 // STK Push simulation (for Kenya / testing)
 router.post('/stk-push',
@@ -104,7 +135,7 @@ router.post('/confirm-deposit',
   authenticateToken,
   async (req, res) => {
     try {
-      const { transactionId, mpesaReceiptNumber } = req.body;
+      const { transactionId, mpesaReceiptNumber, txHash } = req.body;
 
       const admin = await User.findById(req.userId);
       if (!admin || !admin.isAdmin) {
@@ -133,6 +164,9 @@ router.post('/confirm-deposit',
       transaction.status = 'completed';
       transaction.balanceAfter = user.balance;
       transaction.mpesaReceiptNumber = mpesaReceiptNumber;
+      if (txHash) {
+        transaction.metadata = { ...(transaction.metadata || {}), confirmedTxHash: txHash };
+      }
       transaction.processedBy = admin._id;
       transaction.processedAt = new Date();
       await transaction.save();
@@ -251,29 +285,150 @@ router.get('/deposit-info', authenticateToken, async (req, res) => {
   try {
     const user = await User.findById(req.userId);
     const userCurrency = user?.currency || 'KES';
-    const limits = require('../utils/currencyConfig').getDepositLimits(userCurrency);
+    const limits = getDepositLimits(userCurrency);
+    const unitsPerUsd = await ExchangeRateService.getRate(userCurrency);
 
     res.json({
-      paybillNumber: process.env.PAYBILL_NUMBER,
-      accountNumber: process.env.ACCOUNT_NUMBER,
+      method: 'crypto',
+      token: 'USDT',
+      networks: CRYPTO_NETWORKS.map(({ id, label, token, address, explorer, feeHint, recommended }) => ({
+        id, label, token, address, explorer, feeHint, recommended
+      })),
       instructions: [
-        '1. Go to M-PESA or your mobile banking app',
-        '2. Select Lipa na M-PESA or PayBill',
-        `3. Enter Business Number: ${process.env.PAYBILL_NUMBER || '793174'}`,
-        `4. Enter Account Number: ${process.env.ACCOUNT_NUMBER || '745087451'}`,
-        '5. Enter the amount you want to deposit',
-        '6. Enter your PIN and confirm payment',
-        '7. Your balance will be updated instantly or within 5 minutes'
+        '1. Enter your deposit amount in your local currency',
+        '2. Choose a network (Tron TRC20 recommended for lowest fees)',
+        '3. Send the equivalent USDT amount to the address shown',
+        '4. Send USDT only on the selected network — other coins or the wrong network cannot be recovered',
+        '5. Paste your transaction hash (optional) to speed up verification',
+        '6. Your balance will be credited after manual verification (typically 5-30 minutes)'
       ],
       minDeposit: limits.min,
       maxDeposit: limits.max,
-      currency: userCurrency
+      currency: userCurrency,
+      unitsPerUsd
     });
   } catch (error) {
     console.error('Deposit info error:', error);
     res.status(500).json({ error: 'Failed to get deposit information' });
   }
 });
+
+// Get crypto (USDT) deposit options for the current user
+router.get('/crypto-options', authenticateToken, async (req, res) => {
+  try {
+    const user = await User.findById(req.userId);
+    const userCurrency = user?.currency || 'USD';
+    const limits = getDepositLimits(userCurrency);
+    const unitsPerUsd = await ExchangeRateService.getRate(userCurrency);
+
+    res.json({
+      networks: CRYPTO_NETWORKS.map(({ id, label, token, address, explorer, feeHint, recommended }) => ({
+        id, label, token, address, explorer, feeHint, recommended
+      })),
+      currency: userCurrency,
+      unitsPerUsd,
+      limits
+    });
+  } catch (error) {
+    console.error('Crypto options error:', error);
+    res.status(500).json({ error: 'Failed to get crypto deposit options' });
+  }
+});
+
+// Create a pending crypto (USDT) deposit for manual admin verification
+router.post('/crypto-deposit',
+  authenticateToken,
+  [
+    body('amount').isNumeric().withMessage('Amount must be a number'),
+    body('network').isString().trim().notEmpty().withMessage('Network is required'),
+    body('txHash').optional().isString().trim().isLength({ max: 200 }).withMessage('Invalid transaction hash')
+  ],
+  async (req, res) => {
+    try {
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        return res.status(400).json({ error: 'Validation failed', details: errors.array() });
+      }
+
+      const { amount, network, txHash } = req.body;
+      const user = await User.findById(req.userId);
+      if (!user) return res.status(404).json({ error: 'User not found' });
+
+      const userCurrency = user.currency || 'USD';
+
+      const networkConfig = CRYPTO_NETWORKS.find(n => n.id === String(network).toLowerCase());
+      if (!networkConfig) {
+        return res.status(400).json({ error: 'Unsupported network. Use trc20, bep20, or erc20.' });
+      }
+
+      const validation = validateDepositAmount(amount, userCurrency);
+      if (!validation.valid) {
+        return res.status(400).json({ error: validation.error });
+      }
+
+      const transaction = new Transaction({
+        user: user._id,
+        type: 'deposit',
+        amount: parseFloat(amount),
+        currency: userCurrency,
+        balanceBefore: user.balance,
+        balanceAfter: user.balance,
+        status: 'pending',
+        description: `Crypto USDT deposit (${networkConfig.label}) of ${formatCurrency(amount, userCurrency)}`,
+        paymentProvider: 'crypto',
+        metadata: {
+          paymentMethod: 'crypto',
+          network: networkConfig.id,
+          networkLabel: networkConfig.label,
+          token: 'USDT',
+          depositAddress: networkConfig.address,
+          txHash: txHash || null
+        }
+      });
+      await transaction.save();
+
+      const explorerLink = txHash ? `${networkConfig.explorer}${txHash}` : 'N/A';
+
+      await sendTelegramNotification(
+        `🪙 Crypto USDT Deposit (Pending)!\n\n` +
+        `User: ${user.username}\n` +
+        `Amount: ${formatCurrency(transaction.amount, userCurrency)}\n` +
+        `Network: ${networkConfig.label}\n` +
+        `Deposit Address: ${networkConfig.address}\n` +
+        `Tx Hash: ${txHash || 'N/A'}\n` +
+        `Explorer: ${explorerLink}\n` +
+        `Transaction ID: ${transaction.reference}\n` +
+        `Time: ${new Date().toLocaleString()}\n\n` +
+        `⚠️ Please verify the transfer and confirm this deposit in the admin panel.`
+      );
+
+      await sendSlackMessage(
+        process.env.SLACK_WEBHOOK_DEPOSIT_REQUEST,
+        `:moneybag: *Crypto USDT Deposit (Pending)*\n` +
+        `*User:* ${user.username}\n` +
+        `*Amount:* ${formatCurrency(transaction.amount, userCurrency)}\n` +
+        `*Network:* ${networkConfig.label}\n` +
+        `*Deposit Address:* \`${networkConfig.address}\`\n` +
+        `*Tx Hash:* ${txHash ? `<${networkConfig.explorer}${txHash}|${txHash}>` : 'N/A'}\n` +
+        `*Reference:* ${transaction.reference}\n` +
+        `*Time:* ${new Date().toLocaleString('en-KE', { timeZone: 'Africa/Nairobi' })}\n\n` +
+        `⚠️ Please verify on-chain and confirm in the admin panel.`
+      );
+
+      res.json({
+        success: true,
+        reference: transaction.reference,
+        network: networkConfig.id,
+        address: networkConfig.address,
+        amount: transaction.amount
+      });
+
+    } catch (error) {
+      console.error('Crypto deposit error:', error);
+      res.status(500).json({ error: 'Failed to create crypto deposit' });
+    }
+  }
+);
 
 // Request withdrawal
 router.post('/withdraw',
